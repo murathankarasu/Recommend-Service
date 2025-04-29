@@ -19,7 +19,22 @@ def get_cold_start_content(all_contents: List[Dict[str, Any]], emotion_categorie
     remaining = limit - len(selected)
     if remaining > 0:
         # Popülerlik için likes+comments+views toplamı kullanılabilir
-        sorted_contents = sorted(all_contents, key=lambda c: (c.get('likes',0)+c.get('comments',0)+c.get('views',0)), reverse=True)
+        def get_comments_count(c):
+            if 'commentsCount' in c:
+                return c.get('commentsCount', 0)
+            elif isinstance(c.get('comments', None), list):
+                return len(c.get('comments', []))
+            else:
+                return 0
+        sorted_contents = sorted(
+            all_contents,
+            key=lambda c: (
+                c.get('likes', 0) +
+                get_comments_count(c) +
+                c.get('views', 0)
+            ),
+            reverse=True
+        )
         for c in sorted_contents:
             if c not in selected:
                 selected.append(c)
