@@ -2,6 +2,9 @@ from typing import Dict, List, Any
 import random
 import logging
 from config import EMOTION_CATEGORIES, OPPOSITE_EMOTIONS
+from services.reccomend_service.date_utils import parse_timestamp
+from services.reccomend_service.shuffle_utils import shuffle_same_score
+from services.reccomend_service.cold_start_utils import get_cold_start_content
 
 class FeedGenerator:
     def __init__(self):
@@ -94,10 +97,14 @@ class FeedGenerator:
                 recent_posts = await firebase_service.get_popular_content(days=30)
                 
             if not recent_posts:
-                return []
+                # Soğuk başlangıç: çeşitli ve popüler içeriklerden karışım
+                all_posts = await firebase_service.get_all_posts()
+                return get_cold_start_content(all_posts, list(pattern.keys()), 20)
 
             # İçerikleri duygu uyumuna göre sırala
             scored_posts = content_scorer.score_content(recent_posts, pattern, dominant_emotion, is_continuous)
+            # Skoru aynı olanları karıştır
+            scored_posts = shuffle_same_score(scored_posts)
             scored_ads = content_scorer.score_content(recent_ads, pattern, dominant_emotion, is_continuous, is_ad=True) if recent_ads else []
 
             # Dominant duygu içerikleri

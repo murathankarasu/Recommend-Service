@@ -9,6 +9,8 @@ from config.config import (
     INTERACTION_QUALITY_METRICS,
     INTERACTION_TYPE_WEIGHTS
 )
+from services.reccomend_service.shuffle_utils import shuffle_same_score
+from services.reccomend_service.date_utils import parse_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -126,17 +128,79 @@ class ContentRecommender:
             self.content_engagement[content_id].get(interaction_type, 0) + 1
         )
 
-    def get_content_mix(self, contents: List[Dict], emotion_pattern: Dict[str, float], limit: int = 20) -> List[Dict]:
-        """Kullanıcı duygu desenine göre içerik karışımı oluşturur."""
-        # İçeriklere uygunluk skoru ata
-        scored_contents = [
-            (content, self.calculate_content_relevance(content, emotion_pattern))
-            for content in contents
-        ]
-        # Skora göre sırala
-        scored_contents.sort(key=lambda x: x[1], reverse=True)
-        # Sadece içerik objelerini al, ilk 'limit' kadar
-        recommendations = [content for content, score in scored_contents[:limit]]
-        # Çeşitlilik uygula
-        recommendations = self._ensure_content_diversity(recommendations)
-        return recommendations 
+    def get_content_mix(self, contents: List[Dict], emotion_pattern: Dict[str, float], limit: int = 20, shown_post_ids: List[Any] = None, repeat_ratio: float = 0.2) -> List[Dict]:
+        """Kullanıcı duygu desenine ve çeşitliliğe göre içerik karışımı oluşturur. Daha önce gösterilen içerikleri hariç tutar."""
+        from collections import defaultdict
+        import heapq
+        if shown_post_ids is None:
+            shown_post_ids = []
+        # 1. Daha önce gösterilen içerikleri hariç tut
+        unseen_contents = [c for c in contents if c.get('id') not in shown_post_ids]
+        # Eğer yeterli içerik yoksa, bir kısmı tekrar gösterebiliriz
+        min_unseen = int(limit * (1 - repeat_ratio))
+        if len(unseen_contents) < min_unseen:
+            # Eksik kalanları, daha önce gösterilenlerden tamamla
+            seen_contents = [c for c in contents if c.get('id') in shown_post_ids]
+            random.shuffle(seen_contents)
+            unseen_contents += seen_contents[:limit - len(unseen_contents)]
+        # 1. İçerikleri duygulara göre grupla
+        emotion_to_contents = defaultdict(list)
+        for content in unseen_contents:
+            emotion = content.get('emotion')
+            if emotion:
+                emotion_to_contents[emotion].append(content)
+        # 2. Her duygudan en az 1 içerik (varsa) ekle, yakın tarihli olanları öne al
+        selected = []
+        for emotion, content_list in emotion_to_contents.items():
+            sorted_list = sorted(content_list, key=lambda c: parse_timestamp(c.get('timestamp')) or '', reverse=True)
+            if sorted_list:
+                selected.append(sorted_list[0])
+        # 3. Pattern oranına göre kalan slotları doldur
+        remaining_limit = limit - len(selected)
+        if remaining_limit > 0:
+            scored_contents = []
+            now = datetime.now()
+            for content in unseen_contents:
+                emotion = content.get('emotion')
+                if not emotion:
+                    continue
+                pattern_score = emotion_pattern.get(emotion, 0.0)
+                relevance = self.calculate_content_relevance(content, emotion_pattern)
+                timestamp = content.get('timestamp')
+                recency_score = 0.2
+                try:
+                    dt = parse_timestamp(timestamp)
+                    if dt:
+                        days_ago = (now - dt).days
+                        if days_ago <= 7:
+                            recency_score = 1.0
+                        elif days_ago <= 30:
+                            recency_score = 0.5
+                except Exception:
+                    pass
+                total_score = pattern_score * 0.5 + relevance * 0.3 + recency_score * 0.2
+                scored_contents.append((total_score, content))
+            selected_ids = set(c['id'] for c in selected)
+            filtered = [(score, c) for score, c in scored_contents if c['id'] not in selected_ids]
+            # Skoru aynı olanları karıştır
+            filtered = [(score, c) for score, c in filtered]
+            shuffled = shuffle_same_score(filtered)
+            selected += shuffled[:remaining_limit]
+        # 4. Eğer tek bir duygu çok baskınsa, diğer duygulardan da ekle (çeşitlilik)
+        emotion_counts = defaultdict(int)
+        for c in selected:
+            emotion_counts[c.get('emotion')] += 1
+        if emotion_counts:
+            max_emotion = max(emotion_counts, key=emotion_counts.get)
+            if emotion_counts[max_emotion] > limit * 0.7:
+                for emotion, content_list in emotion_to_contents.items():
+                    if emotion == max_emotion:
+                        continue
+                    for content in content_list:
+                        if content not in selected:
+                            selected.append(content)
+                            if len(selected) >= limit:
+                                break
+                    if len(selected) >= limit:
+                        break
+        return selected[:limit] 

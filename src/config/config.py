@@ -104,7 +104,7 @@ AD_CONFIG = {
 }
 
 # Reklam parametreleri
-AD_FREQUENCY = random.randint(5, 7)  # Her 5-7 içerikte 1 reklam
+AD_FREQUENCY = 5  # Her 5 içerikte 1 reklam
 AD_CONTENT_RATIO = 0.8  # İçerik oranı
 AD_RATIO = 0.2  # Reklam oranı
 AD_LEARNING_RATE = 0.05  # Reklam etkileşimleri için öğrenme oranı
@@ -251,7 +251,7 @@ TIME_BASED_OPTIMIZATION = {
 
 # İçerik Çeşitliliği Kontrolleri
 DIVERSITY_CONTROLS = {
-    'max_similar_content': 3,    # Ardışık benzer içerik sayısı
+    'max_similar_content': 20,    # Ardışık benzer içerik sayısı (artık 20)
     'min_diversity_ratio': 0.3,  # Minimum çeşitlilik oranı
     'topic_rotation': 0.2        # Konu rotasyonu ağırlığı
 }

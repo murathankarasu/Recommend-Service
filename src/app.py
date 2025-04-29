@@ -20,6 +20,11 @@ from config.config import (
 import os
 import traceback
 import asyncio
+# --- Yardımcı modüller ---
+from services.reccomend_service.user_history_utils import get_recent_shown_post_ids
+from services.reccomend_service.ab_test_logger import log_recommendation_event
+from services.reccomend_service.cold_start_utils import get_cold_start_content
+from services.reccomend_service.date_utils import parse_timestamp
 
 app = Flask(__name__)
 CORS(app)
@@ -52,30 +57,35 @@ def get_recommendations(user_id):
         user_interactions = run_async(firebase.get_user_interactions(user_id))
         print(f"[API] Kullanıcı etkileşimleri alındı: {len(user_interactions)} adet etkileşim")
         
-        if not user_interactions:
-            print("[API] Kullanıcı etkileşimi bulunamadı")
-            return jsonify({
-                'success': False,
-                'error': 'Kullanıcı etkileşimi bulunamadı',
-                'recommendations': [],
-                'emotion_pattern': {}
-            })
-        
-        # Duygu desenini analiz et
-        print("[API] Duygu deseni analiz ediliyor...")
-        emotion_pattern = emotion_analyzer.analyze_pattern(user_interactions, user_id)
-        print(f"[API] Duygu deseni analiz edildi: {emotion_pattern}")
-        
         # İçerikleri getir
         print("[API] İçerikler getiriliyor...")
         contents = run_async(firebase_post.get_all_posts())
         
-        # İçerik karışımını oluştur
-        content_mix = content_recommender.get_content_mix(contents, emotion_pattern, 20)
-        
+        # Eğer hiç etkileşim yoksa soğuk başlangıç önerisi
+        if not user_interactions:
+            print("[API] Soğuk başlangıç önerisi hazırlanıyor...")
+            content_mix = get_cold_start_content(contents, list(EMOTION_CATEGORIES.values()), 20)
+            emotion_pattern = {e: 1/len(EMOTION_CATEGORIES) for e in EMOTION_CATEGORIES.values()}
+        else:
+            # Duygu desenini analiz et
+            print("[API] Duygu deseni analiz ediliyor...")
+            emotion_pattern = emotion_analyzer.analyze_pattern(user_interactions, user_id)
+            print(f"[API] Duygu deseni analiz edildi: {emotion_pattern}")
+            # Kullanıcıya daha önce gösterilen postId'leri topla (son 200)
+            shown_post_ids = get_recent_shown_post_ids(user_interactions)
+            # İçerik karışımını oluştur (daha önce gösterilenleri hariç tut)
+            content_mix = content_recommender.get_content_mix(contents, emotion_pattern, 20, shown_post_ids=shown_post_ids)
         # Reklamları ekle
         final_mix = run_async(ad_manager.insert_ads(content_mix, user_id))
-        
+        # Loglama (A/B test ve parametre takibi)
+        try:
+            log_recommendation_event(
+                user_id=user_id,
+                recommended_posts=[c['id'] for c in final_mix if 'id' in c],
+                params={"repeat_ratio": 0.2, "cold_start": not bool(user_interactions)}
+            )
+        except Exception as logerr:
+            print(f"[API] Loglama hatası: {logerr}")
         return jsonify({
             'success': True,
             'recommendations': final_mix,
