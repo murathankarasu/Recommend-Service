@@ -1,263 +1,346 @@
-# Duygu Tabanlı Öneri Sistemi
+# Emotion-Based Recommendation System
 
-Bu proje, kullanıcıların duygusal etkileşimlerine dayalı olarak içerik ve reklam önerileri sunan bir API servisidir.
+This project is an API service that provides content and ad recommendations based on users' emotional interactions.
 
-## Özellikler
+## Features
 
-- Duygu tabanlı içerik önerileri
-- Akıllı reklam yerleştirme
-- Kullanıcı duygu desenlerinin analizi
-- Firebase entegrasyonu
+- Emotion-based content recommendations
+- Smart ad placement
+- Analysis of user emotion patterns
+- Firebase integration
 - RESTful API
 
-## Kurulum
+## Installation
 
-1. Gereksinimleri yükleyin:
+1. Install the requirements:
 ```bash
 pip install -r src/requirements.txt
 ```
 
-2. Environment değişkenlerini ayarlayın:
-- `.env.example` dosyasını `.env` olarak kopyalayın
-- Firebase kimlik bilgilerinizi base64 formatında `FIREBASE_CREDENTIALS` değişkenine ekleyin
+2. Set up environment variables:
+- Copy `.env.example` to `.env`
+- Add your Firebase credentials in base64 format to the `FIREBASE_CREDENTIALS` variable
 
-3. Uygulamayı başlatın:
+3. Start the application:
 ```bash
 cd src
 python app.py
 ```
 
-## API Endpoint'leri
+## API Endpoints
 
 ### GET /api/recommendations/{user_id}
-Kullanıcıya özel içerik ve reklam önerileri döndürür.
+Returns personalized content and ad recommendations for the user.
 
 ### POST /api/track_interaction
-Kullanıcı etkileşimlerini kaydeder.
+Records user interactions.
 
-Örnek istek:
+Sample request:
 ```json
 {
     "userId": "user123",
     "postId": "post456",
     "interactionType": "like",
-    "emotion": "Neşe (Joy)",
+    "emotion": "Joy",
     "confidence": 0.9
 }
 ```
 
 ---
 
-# Algoritma ve Fonksiyonların Detaylı Açıklaması
+# Detailed Explanation of Algorithms and Functions
 
-Bu bölümde, öneri sisteminin tüm ana algoritmaları ve yardımcı modülleri detaylı olarak açıklanmıştır. Her fonksiyonun amacı, parametreleri, işleyişi ve örnek akışları uzun uzun anlatılmıştır.
+This section provides a detailed explanation of all main algorithms and helper modules of the recommendation system. The purpose, parameters, operation, and sample flows of each function are described in detail.
 
-## 1. Ana Akış: Kullanıcıya Öneri Sunma
+## 1. Main Flow: Providing Recommendations to the User
 
 ### `GET /api/recommendations/<user_id>`
-Bu endpoint, bir kullanıcıya özel içerik ve reklam önerileri döndürür. Akış şu şekildedir:
+This endpoint returns personalized content and ad recommendations for a user. The flow is as follows:
 
-1. **Kullanıcı Etkileşimleri Getirilir:**
-   - `firebase.get_user_interactions(user_id)` ile kullanıcının geçmiş etkileşimleri çekilir.
-   - Eğer hiç etkileşim yoksa cold start algoritması devreye girer.
+1. **Retrieve User Interactions:**
+   - The user's past interactions are fetched with `firebase.get_user_interactions(user_id)`.
+   - If there are no interactions, the cold start algorithm is triggered.
 
-2. **İçerik Havuzu Getirilir:**
-   - `firebase_post.get_all_posts()` ile tüm içerikler alınır.
+2. **Retrieve Content Pool:**
+   - All content is fetched with `firebase_post.get_all_posts()`.
 
-3. **Duygu Deseni Analizi:**
-   - `emotion_analyzer.analyze_pattern(user_interactions, user_id)` fonksiyonu ile kullanıcının duygusal eğilimleri çıkarılır.
-   - Sonuç: Her duygu için 0-1 arası bir oran.
+3. **Emotion Pattern Analysis:**
+   - The user's emotional tendencies are extracted with `emotion_analyzer.analyze_pattern(user_interactions, user_id)`.
+   - Result: A ratio between 0-1 for each emotion.
 
-4. **Kullanıcıya Gösterilen İçeriklerin Filtrelenmesi:**
-   - `get_recent_shown_post_ids(user_interactions)` ile son gösterilen içerikler belirlenir.
+4. **Filtering Recently Shown Content:**
+   - Recently shown content is determined with `get_recent_shown_post_ids(user_interactions)`.
 
-5. **Kişiselleştirilmiş İçerik Karışımı:**
-   - `content_recommender.get_content_mix(...)` fonksiyonu ile kullanıcının duygu desenine ve geçmişine göre içerik karışımı oluşturulur.
+5. **Personalized Content Mix:**
+   - A content mix is created based on the user's emotion pattern and history with `content_recommender.get_content_mix(...)`.
 
-6. **Reklamların Eklenmesi:**
-   - `ad_manager.insert_ads(content_mix, user_id)` ile uygun yerlere reklamlar eklenir.
+6. **Adding Ads:**
+   - Ads are inserted into appropriate places with `ad_manager.insert_ads(content_mix, user_id)`.
 
-7. **A/B Test ve Loglama:**
-   - `log_recommendation_event(...)` ile öneri ve parametreler loglanır.
+7. **A/B Testing and Logging:**
+   - The recommendation and parameters are logged with `log_recommendation_event(...)`.
 
-8. **Yanıtın Dönülmesi:**
-   - Sonuç, öneriler ve duygu deseni ile birlikte döndürülür.
+8. **Returning the Response:**
+   - The result is returned with recommendations and the emotion pattern.
 
 ---
 
-## 2. Cold Start Algoritması
+## 2. Cold Start Algorithm
 
 ### `get_cold_start_content(all_contents, emotion_categories, limit)`
-Hiç etkileşimi olmayan kullanıcılar için çeşitli ve popüler içeriklerden oluşan bir öneri listesi oluşturur.
+Creates a recommendation list consisting of diverse and popular content for users with no interactions.
 
-- **Her duygudan en az 1 içerik** eklenir (varsa).
-- Kalan slotlar, popülerlik (beğeni + yorum + görüntülenme) puanına göre doldurulur.
-- Sonuç karıştırılır ve limit kadar içerik döndürülür.
+- **At least 1 content from each emotion** is added (if available).
+- Remaining slots are filled based on popularity (like + comment + view score).
+- The result is shuffled and limited to the specified number of content.
 
-**Parametreler:**
-- `all_contents`: Tüm içeriklerin listesi (dict).
-- `emotion_categories`: Duygu kategorilerinin listesi.
-- `limit`: Döndürülecek içerik sayısı.
+**Parameters:**
+- `all_contents`: List of all content (dict).
+- `emotion_categories`: List of emotion categories.
+- `limit`: Number of content to return.
 
-**Örnek Akış:**
-1. Her duygudan rastgele bir içerik seç.
-2. Kalan slotları popüler içeriklerle doldur.
-3. Sonuçları karıştır ve döndür.
+**Sample Flow:**
+1. Select a random content from each emotion.
+2. Fill remaining slots with popular content.
+3. Shuffle and return the results.
 
 ---
 
-## 3. Duygu Deseni Analizi
+## 3. Emotion Pattern Analysis
 
 ### `analyze_pattern(user_interactions, user_id)`
-Kullanıcının geçmiş etkileşimlerinden, hangi duygulara daha çok tepki verdiğini analiz eder.
+Analyzes which emotions the user responds to most based on past interactions.
 
-- Her etkileşimdeki duyguya ağırlık verilir.
-- Sonuçta, her duygu için 0-1 arası bir oran elde edilir.
-- Bu oranlar, öneri algoritmasında içeriklerin sıralanmasında kullanılır.
+- Each interaction's emotion is weighted.
+- As a result, a ratio between 0-1 is obtained for each emotion.
+- These ratios are used in the recommendation algorithm to rank content.
 
-**Parametreler:**
-- `user_interactions`: Kullanıcının etkileşim listesi.
-- `user_id`: Kullanıcı ID'si.
+**Parameters:**
+- `user_interactions`: List of user interactions.
+- `user_id`: User ID.
 
-**Örnek:**
-- Kullanıcı 10 etkileşimin 6'sında "Neşe", 4'ünde "Aşk" seçmişse:
-  - `{"Neşe": 0.6, "Aşk": 0.4, ...}`
+**Example:**
+- If the user selected "Joy" in 6 out of 10 interactions and "Love" in 4:
+  - `{"Joy": 0.6, "Love": 0.4, ...}`
 
 ---
 
-## 4. İçerik Karışımı ve Sıralama
+## 4. Content Mix and Ranking
 
 ### `get_content_mix(contents, emotion_pattern, limit, shown_post_ids)`
-Kullanıcının duygu desenine ve geçmişte gördüğü içeriklere göre, yeni bir içerik karışımı oluşturur.
+Creates a new content mix based on the user's emotion pattern and previously seen content.
 
-- Daha önce gösterilen içerikler hariç tutulur.
-- İçerikler, kullanıcının baskın duygularına göre ağırlıklandırılır.
-- Skoru aynı olan içerikler için küçük bir rastgelelik eklenir (`shuffle_same_score`).
-- Sonuç, limit kadar içerik olacak şekilde döndürülür.
+- Previously shown content is excluded.
+- Content is weighted according to the user's dominant emotions.
+- A small randomness is added for content with the same score (`shuffle_same_score`).
+- The result is limited to the specified number of content.
 
-**Parametreler:**
-- `contents`: Tüm içerikler.
-- `emotion_pattern`: Kullanıcının duygu deseni.
-- `limit`: Döndürülecek içerik sayısı.
-- `shown_post_ids`: Daha önce gösterilen içeriklerin ID'leri.
+**Parameters:**
+- `contents`: All content.
+- `emotion_pattern`: User's emotion pattern.
+- `limit`: Number of content to return.
+- `shown_post_ids`: IDs of previously shown content.
 
 ---
 
-## 5. Yardımcı Modüller
+## 5. Helper Modules
 
 ### `user_history_utils.py`
-- Kullanıcıya son gösterilen içeriklerin ID'lerini döndürür.
-- Tekrarlı içeriklerin önüne geçmek için kullanılır.
+- Returns the IDs of the most recently shown content to the user.
+- Used to prevent repeated content.
 
 ### `shuffle_utils.py`
-- Skoru aynı olan içerikleri kendi aralarında karıştırır.
-- Öneri listesinin monoton olmasını engeller.
+- Shuffles content with the same score among themselves.
+- Prevents the recommendation list from being monotonous.
 
 ### `date_utils.py`
-- Farklı timestamp formatlarını güvenli şekilde parse eder ve UTC'ye normalize eder.
-- Tarih işlemlerinde hata riskini azaltır.
+- Safely parses different timestamp formats and normalizes to UTC.
+- Reduces the risk of errors in date operations.
 
 ### `ab_test_logger.py`
-- Öneri algoritmasında yapılan A/B testlerinin ve parametrelerin loglanmasını sağlar.
-- Sonuçların analizinde kullanılır.
+- Logs A/B tests and parameters used in the recommendation algorithm.
+- Used in the analysis of results.
 
 ### `cold_start_utils.py`
-- Cold start (yeni kullanıcı) için öneri karışımı oluşturur.
-- Duygu çeşitliliği ve popülerlik dengesini sağlar.
+- Creates a recommendation mix for cold start (new user).
+- Ensures a balance of emotion diversity and popularity.
 
 ---
 
-## 6. Reklam Yerleştirme
+## 6. Ad Placement
 
 ### `ad_manager.insert_ads(content_mix, user_id)`
-- İçerik karışımına, kullanıcının duygu desenine ve ilgi alanlarına uygun reklamlar ekler.
-- Reklamlar, belirli aralıklarla ve öncelik sırasına göre yerleştirilir.
-- Her reklamın hedef duyguları ve önceliği dikkate alınır.
+- Adds ads to the content mix according to the user's emotion pattern and interests.
+- Ads are placed at certain intervals and according to priority order.
+- Each ad's target emotions and priority are taken into account.
 
 ---
 
-## 7. Kullanıcı Etkileşimi Kaydı
+## 7. Recording User Interaction
 
 ### `POST /api/track_interaction`
-- Kullanıcı bir içerikle etkileşime geçtiğinde (beğeni, yorum, duygu seçimi vb.) bu endpoint çağrılır.
-- Etkileşim Firebase'e kaydedilir.
-- İçerik etkileşim istatistikleri güncellenir.
+- When a user interacts with content (like, comment, emotion selection, etc.), this endpoint is called.
+- The interaction is recorded in Firebase.
+- Content interaction statistics are updated.
 
-**Parametreler:**
-- `userId`: Kullanıcı ID'si
-- `postId`: İçerik ID'si
-- `interactionType`: Etkileşim türü (like, comment, view, emotion, vs.)
-- `emotion`: Kullanıcının seçtiği duygu
-- `confidence`: Duygu tespiti güven skoru
-
----
-
-## 8. A/B Test Mantığı
-
-- Kullanıcılar rastgele veya belirli kurallara göre farklı algoritma/parametre varyantlarına atanabilir.
-- Her öneri isteğinde, hangi varyantın kullanıldığı ve sonuçları loglanır.
-- Sonuçlar analiz edilerek, en iyi performans gösteren algoritma/parametreler belirlenir.
+**Parameters:**
+- `userId`: User ID
+- `postId`: Content ID
+- `interactionType`: Type of interaction (like, comment, view, emotion, etc.)
+- `emotion`: Emotion selected by the user
+- `confidence`: Emotion detection confidence score
 
 ---
 
-## 9. Algoritma Akışı (Özet)
+## 8. A/B Test Logic
 
-1. Kullanıcıdan öneri isteği gelir.
-2. Kullanıcı etkileşimleri ve içerik havuzu çekilir.
-3. Eğer hiç etkileşim yoksa cold start algoritması çalışır.
-4. Varsa, duygu deseni analiz edilir ve içerik karışımı oluşturulur.
-5. Reklamlar uygun yerlere eklenir.
-6. Sonuç ve parametreler loglanır.
-7. Öneri listesi ve duygu deseni API yanıtı olarak döndürülür.
+- Users can be assigned to different algorithm/parameter variants randomly or by certain rules.
+- For each recommendation request, which variant was used and the results are logged.
+- The results are analyzed to determine the best performing algorithm/parameters.
 
 ---
 
-## 10. Geliştiriciye Notlar
+## 9. Algorithm Flow (Summary)
 
-- Her fonksiyon ve modül, kolayca test edilebilecek şekilde bağımsız yazılmıştır.
-- Yardımcı modüller, ana algoritmalardan bağımsız olarak başka projelerde de kullanılabilir.
-- Kodun tamamı Python 3.8+ ile uyumludur.
-- Firebase entegrasyonu için environment değişkenleri doğru ayarlanmalıdır.
-
----
-
-## 11. Dinamik Duygu Deseni ve Esnetme Mekanizması
-
-Öneri sistemi, kullanıcının etkileşimlerine göre sürekli olarak kendini günceller ve kişiselleştirir. Bu süreç iki ana akıştan oluşur:
-
-### a) Kişiselleşme (Etkileşim Oldukça)
-- Kullanıcı önerilen feeddeki içeriklere **etkileşim** (like, comment, emotion) verdikçe, bu etkileşimler analiz edilir.
-- Her yeni etkileşimde, kullanıcının **duygu deseni (emotion_pattern)** yeniden hesaplanır.
-- Örneğin, kullanıcı "Neşe (Joy)" içeriklerine daha çok like verirse, "Neşe" oranı artar; "Öfke (Anger)" içeriklerine hiç etkileşim vermezse, "Öfke" oranı azalır.
-- Sonraki feedlerde, öneriler bu güncel duygu desenine göre ağırlıklandırılır ve giderek daha kişisel hale gelir.
-
-### b) Esnetme (Etkileşim Olmazsa)
-- Eğer kullanıcı, önerilen feeddeki içeriklere **hiçbir anlamlı etkileşim** (like, comment, emotion) vermezse, sistem otomatik olarak esnetme mantığını devreye alır.
-- Esnetme mantığında:
-  - Baskın duygu oranı %50'ye çekilir.
-  - Diğer tüm duygular kalan %50'yi eşit paylaşır.
-- Böylece, kullanıcı ilgisiz kaldığında sistem otomatik olarak çeşitliliği artırır ve tekdüzelikten kurtarır.
-- Kullanıcı tekrar etkileşim vermeye başladığında, sistem tekrar kişiselleşmiş pattern'a döner.
-
-**Kısacası:**
-- Kullanıcı etkileşim verdikçe yüzdeler değişir ve öneri sistemi giderek daha akıllı ve kişisel çalışır.
-- Kullanıcı ilgisiz kalırsa, sistem otomatik olarak çeşitliliği artırır.
+1. A recommendation request is received from the user.
+2. User interactions and content pool are fetched.
+3. If there are no interactions, the cold start algorithm runs.
+4. If there are, the emotion pattern is analyzed and a content mix is created.
+5. Ads are added to appropriate places.
+6. The result and parameters are logged.
+7. The recommendation list and emotion pattern are returned as the API response.
 
 ---
 
-Her türlü katkı, öneri ve hata bildirimi için lütfen issue açın veya pull request gönderin.
+## 10. Notes for Developers
+
+- Each function and module is written to be easily testable and independent.
+- Helper modules can be used independently in other projects.
+- The entire code is compatible with Python 3.8+.
+- Environment variables must be set correctly for Firebase integration.
+
+---
+
+## 11. Dynamic Emotion Pattern and Stretching Mechanism
+
+The recommendation system continuously updates and personalizes itself according to the user's interactions. This process consists of two main flows:
+
+### a) Personalization (As Interactions Occur)
+- As the user interacts with content in the recommended feed (like, comment, emotion), these interactions are analyzed.
+- With each new interaction, the user's **emotion pattern** is recalculated.
+- For example, if the user likes "Joy" content more, the "Joy" ratio increases; if they never interact with "Anger" content, the "Anger" ratio decreases.
+- In subsequent feeds, recommendations are weighted according to this updated emotion pattern and become increasingly personalized.
+
+### b) Stretching (If No Interaction Occurs)
+- If the user gives **no meaningful interaction** (like, comment, emotion) to the recommended feed, the system automatically activates the stretching logic.
+- In stretching logic:
+  - The dominant emotion ratio is pulled to 50%.
+  - The remaining 50% is equally shared among all other emotions.
+- Thus, when the user is uninterested, the system automatically increases diversity and avoids monotony.
+- When the user starts interacting again, the system returns to the personalized pattern.
+
+**In summary:**
+- As the user interacts, the percentages change and the recommendation system becomes smarter and more personal.
+- If the user is uninterested, the system automatically increases diversity.
+
+---
+
+## 12. Normalization of Emotion Distribution and the Problem of Getting Stuck on a Single Emotion
+
+As the number of users increases, some users may constantly respond to a single emotion (e.g., "Joy"), which can negatively affect the diversity and personalization quality of the recommendation system. The following mechanisms are implemented in the project to solve this problem:
+
+### 1. Weighted Average and Update
+- The user's emotion distribution history is updated with a weighted average. That is, new interactions may have less or more weight than old ones.
+- Thus, even if there is an excessive response to a single emotion, the distribution is softened over time.
+
+### 2. Stretching Mechanism (Feed Stretching)
+- If a user does not give meaningful interaction to the recommended content for a long time (e.g., never likes/comments/selects emotion), the system automatically activates the "stretching" logic.
+- During stretching:
+  - The user's dominant emotion ratio is pulled to 50%.
+  - The remaining 50% is equally distributed among all other emotions.
+- Thus, the system prevents getting stuck on a single emotion and increases diversity.
+
+### 3. Emotion Diversity Requirement
+- Functions that guarantee at least one content from each emotion in the recommendation list are used.
+- This is especially activated during cold start and content mix creation.
+
+### 4. Detection of Getting Stuck on a Single Emotion
+- It is detected whether the user is stuck on a single emotion in their last N interactions.
+- For example, if a user has selected "Joy" in 8 out of their last 10 interactions, the system detects this and acts to increase recommendation diversity.
+
+### 5. Time-Updated Distribution
+- Users' emotion distributions are continuously updated over time and with new interactions.
+- The weight of old interactions decreases, and new interactions become more effective (e.g., with weighted average or decay mechanism).
+
+**In summary:**
+- Getting stuck on a single emotion is detected by the system and recommendation diversity is automatically increased.
+- Emotion distribution is normalized: with stretching, weighted average, and diversity requirement.
+- Even as the number of users increases, the quality and diversity of recommendations are preserved.
+
+---
+
+## 13. Additional Features and Other Architectural Details
+
+### User Behavior Analysis and Profile Factors
+The system considers not only emotional interactions but also the user's interests, demographic information, behavioral patterns, and social connections. These factors affect the profile score in the recommendation algorithm and enable more personalized recommendations.
+
+### Emotion Transition Matrix and Transition Analysis
+Users' tendencies to transition from one emotion to another are modeled with the `EMOTION_TRANSITION_MATRIX` in the system. This matrix helps the recommendation algorithm predict possible mood changes and provide content diversity accordingly.
+
+### Time-Based Weighting and Recency
+The time factor is important in user interactions. Interactions from the last 24 hours, last 7 days, and older are considered with different weights. Thus, the system becomes more sensitive to the user's current mood.
+
+### Content Quality and Engagement Metrics
+Content to be recommended is scored not only by emotion but also by engagement rate, content freshness, author reputation, and content length. This prevents low-quality or old content from being recommended.
+
+### Ad Optimization and Emotion-Based Targeting
+Ads are placed according to the user's emotion pattern and interests. Each ad has target emotions and priority scores. In addition, the frequency and placement of ads are optimized.
+
+### Confidence Score and Emotion Analysis Reliability
+During emotion detection, a confidence score is assigned to the model's prediction. The system considers predictions with low confidence scores as less effective and takes this score into account in the recommendation algorithm.
+
+### A/B Testing and Parameter Tracking
+The system can test different algorithm and parameter variants live. For each recommendation request, which variant was used and the results are logged. Thus, the best performing structure can be automatically detected.
+
+### Error Handling and Logging
+All main functions have error catching and logging mechanisms. Thus, errors in the system can be easily detected and quickly intervened.
+
+### Developer-Friendly Architecture
+Thanks to the modular structure of the code, new algorithms or metrics can be easily added. Helper modules are designed independently so that they can be used in other projects as well.
+
+---
+
+For any contributions, suggestions, or bug reports, please open an issue or send a pull request.
 
 ## Railway Deployment
 
-1. Railway CLI'ı yükleyin
-2. Environment değişkenlerini Railway dashboard'dan ayarlayın:
+1. Install the Railway CLI
+2. Set environment variables from the Railway dashboard:
    - `FIREBASE_CREDENTIALS`
-   - `PORT` (Railway otomatik ayarlayacak)
-3. Deploy edin:
+   - `PORT` (Railway will set automatically)
+3. Deploy:
 ```bash
 railway up
 ```
 
-## Lisans
+## 14. Analysis and Optimization of Ads According to Emotional State
 
-MIT 
+The system analyzes the emotional impact of ads on users. When a user interacts with an ad (e.g., click, view), the current emotional state and the emotion category targeted by the ad are recorded. This data is used to understand in which emotional states ads are more effective and to optimize ad placement.
+
+- **Emotion-Performance Correlation:** The display and interaction rates of ads in different emotional states are analyzed.
+- **Dynamic Ad Placement:** The user's current emotion pattern directly affects the frequency and type of ads.
+- **Ad Interaction Score:** For each ad, separate interaction scores are kept for different emotions, and these scores are considered in the recommendation algorithm.
+
+---
+
+## 15. Scalability and Performance
+
+The system is designed to be scalable against increasing numbers of users and content.
+- **Batch Operations and Asynchronous Structure:** Asynchronous functions and batch data processing methods are used to prevent performance loss when working with large datasets.
+- **Cache and Optimization:** Caching mechanisms are applied for frequently used data and calculations.
+
+---
+
+## License
+
+Lori
