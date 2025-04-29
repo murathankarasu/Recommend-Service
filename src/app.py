@@ -47,6 +47,20 @@ def run_async(coro):
     finally:
         loop.close()
 
+def has_interaction_with_posts(user_interactions, post_ids):
+    """
+    Belirtilen post_ids listesindeki içeriklere kullanıcı etkileşimi olmuş mu kontrol eder.
+    Sadece like, comment, emotion gibi etkileşimler dikkate alınır.
+    """
+    post_ids_set = set(post_ids)
+    valid_types = {'like', 'comment', 'emotion'}
+    for interaction in user_interactions:
+        pid = interaction.get('postId') or interaction.get('content_id') or interaction.get('id')
+        if pid in post_ids_set:
+            if interaction.get('interactionType') in valid_types:
+                return True
+    return False
+
 @app.route('/api/recommendations/<user_id>', methods=['GET'])
 def get_recommendations(user_id):
     try:
@@ -61,6 +75,9 @@ def get_recommendations(user_id):
         print("[API] İçerikler getiriliyor...")
         contents = run_async(firebase_post.get_all_posts())
         
+        # Son gösterilen feed'in postId'lerini bul
+        shown_post_ids = get_recent_shown_post_ids(user_interactions)
+        
         # Eğer hiç etkileşim yoksa soğuk başlangıç önerisi
         if not user_interactions:
             print("[API] Soğuk başlangıç önerisi hazırlanıyor...")
@@ -71,8 +88,20 @@ def get_recommendations(user_id):
             print("[API] Duygu deseni analiz ediliyor...")
             emotion_pattern = emotion_analyzer.analyze_pattern(user_interactions, user_id)
             print(f"[API] Duygu deseni analiz edildi: {emotion_pattern}")
-            # Kullanıcıya daha önce gösterilen postId'leri topla (son 200)
-            shown_post_ids = get_recent_shown_post_ids(user_interactions)
+            # --- FEED ESNETME MANTIĞI ---
+            # Son feeddeki içeriklere etkileşim var mı kontrol et
+            if shown_post_ids:
+                interacted = has_interaction_with_posts(user_interactions, shown_post_ids[-20:])
+                if not interacted:
+                    # Esnet: dominant duygunun oranı %50'ye çek, diğerleri eşit paylaşılsın
+                    dominant = max(emotion_pattern, key=emotion_pattern.get)
+                    n_other = len(emotion_pattern) - 1
+                    for e in emotion_pattern:
+                        if e == dominant:
+                            emotion_pattern[e] = 0.5
+                        else:
+                            emotion_pattern[e] = 0.5 / n_other if n_other > 0 else 0.0
+                    print(f"[API] FEED ESNETİLDİ: {emotion_pattern}")
             # İçerik karışımını oluştur (daha önce gösterilenleri hariç tut)
             content_mix = content_recommender.get_content_mix(contents, emotion_pattern, 20, shown_post_ids=shown_post_ids)
         # Reklamları ekle
