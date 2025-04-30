@@ -25,6 +25,7 @@ from services.reccomend_service.user_history_utils import get_recent_shown_post_
 from services.reccomend_service.ab_test_logger import log_recommendation_event
 from services.reccomend_service.cold_start_utils import get_cold_start_content
 from services.reccomend_service.date_utils import parse_timestamp
+from datetime import datetime, timezone, timedelta
 
 app = Flask(__name__)
 CORS(app)
@@ -38,6 +39,8 @@ ad_manager = AdManager(firebase)
 word_analyzer = WordAnalyzer()
 user_profile_manager = UserProfileManager(firebase)
 performance_monitor = PerformanceMonitor()
+
+MAX_FEED_HISTORY = 100  # Her kullanıcı için maksimum feed geçmişi kaydı
 
 def run_async(coro):
     loop = asyncio.new_event_loop()
@@ -64,20 +67,39 @@ def has_interaction_with_posts(user_interactions, post_ids):
 @app.route('/api/recommendations/<user_id>', methods=['GET'])
 def get_recommendations(user_id):
     try:
-        print(f"[API] Öneri isteği alındı - Kullanıcı ID: {user_id}")
-        
+        now = datetime.now(timezone.utc)
+        # 1. Son aktiviteyi Firestore'dan çek
+        last_active_doc = firebase.db.collection('userFeedLastActive').document(user_id).get()
+        last_active = None
+        if last_active_doc.exists:
+            last_active = last_active_doc.to_dict().get('last_active')
+            if last_active:
+                last_active = datetime.fromisoformat(last_active)
+        # 2. 10 dakikadan fazla geçtiyse feed geçmişini sil
+        if last_active and (now - last_active) > timedelta(minutes=10):
+            shown_feed_docs = firebase.db.collection('userShownFeeds').where('user_id', '==', user_id).stream()
+            for doc in shown_feed_docs:
+                firebase.db.collection('userShownFeeds').document(doc.id).delete()
+            print(f"[API] Kullanıcı {user_id} için eski feed geçmişi silindi.")
+            shown_post_ids = []
+        else:
+            shown_post_ids = []
+            try:
+                shown_feed_docs = firebase.db.collection('userShownFeeds').where('user_id', '==', user_id).order_by('timestamp', direction='DESCENDING').limit(100).stream()
+                for doc in shown_feed_docs:
+                    data = doc.to_dict()
+                    shown_post_ids.extend(data.get('post_ids', []))
+            except Exception as e:
+                print(f"[API] shown_post_ids çekilemedi: {e}")
+        # 3. Son aktiviteyi güncelle
+        firebase.db.collection('userFeedLastActive').document(user_id).set({'last_active': now.isoformat()})
         # Kullanıcı etkileşimlerini getir
         print("[API] Kullanıcı etkileşimleri getiriliyor...")
         user_interactions = run_async(firebase.get_user_interactions(user_id))
         print(f"[API] Kullanıcı etkileşimleri alındı: {len(user_interactions)} adet etkileşim")
-        
         # İçerikleri getir
         print("[API] İçerikler getiriliyor...")
         contents = run_async(firebase_post.get_all_posts())
-        
-        # Son gösterilen feed'in postId'lerini bul
-        shown_post_ids = get_recent_shown_post_ids(user_interactions)
-        
         # Eğer hiç etkileşim yoksa soğuk başlangıç önerisi
         if not user_interactions:
             print("[API] Soğuk başlangıç önerisi hazırlanıyor...")
@@ -93,7 +115,6 @@ def get_recommendations(user_id):
             if shown_post_ids:
                 interacted = has_interaction_with_posts(user_interactions, shown_post_ids[-20:])
                 if not interacted:
-                    # Esnet: dominant duygunun oranı %50'ye çek, diğerleri eşit paylaşılsın
                     dominant = max(emotion_pattern, key=emotion_pattern.get)
                     n_other = len(emotion_pattern) - 1
                     for e in emotion_pattern:
@@ -104,8 +125,27 @@ def get_recommendations(user_id):
                     print(f"[API] FEED ESNETİLDİ: {emotion_pattern}")
             # İçerik karışımını oluştur (daha önce gösterilenleri hariç tut)
             content_mix = content_recommender.get_content_mix(contents, emotion_pattern, 20, shown_post_ids=shown_post_ids)
+            # Eğer hiç unseen içerik kalmadıysa (feed boşsa), shown_post_ids'i sıfırla ve tekrar oluştur
+            if not content_mix:
+                print(f"[API] Kullanıcı {user_id} için hiç unseen içerik kalmadı, feed geçmişi sıfırlanıyor...")
+                shown_feed_docs = firebase.db.collection('userShownFeeds').where('user_id', '==', user_id).stream()
+                for doc in shown_feed_docs:
+                    firebase.db.collection('userShownFeeds').document(doc.id).delete()
+                shown_post_ids = []
+                content_mix = content_recommender.get_content_mix(contents, emotion_pattern, 20, shown_post_ids=shown_post_ids)
         # Reklamları ekle
         final_mix = run_async(ad_manager.insert_ads(content_mix, user_id))
+        # --- GÖSTERİLEN FEED'İ KAYDET ---
+        try:
+            feed_post_ids = [c['id'] for c in final_mix if 'id' in c]
+            firebase.db.collection('userShownFeeds').add({
+                'user_id': user_id,
+                'post_ids': feed_post_ids,
+                'timestamp': now.isoformat()
+            })
+            print(f"[API] Feed gösterimi kaydedildi: {feed_post_ids}")
+        except Exception as e:
+            print(f"[API] Feed gösterimi kaydedilemedi: {e}")
         # Loglama (A/B test ve parametre takibi)
         try:
             log_recommendation_event(
@@ -115,6 +155,12 @@ def get_recommendations(user_id):
             )
         except Exception as logerr:
             print(f"[API] Loglama hatası: {logerr}")
+        # Feed geçmişi limiti kontrolü ve eski kayıtların silinmesi
+        shown_feed_docs_list = list(firebase.db.collection('userShownFeeds').where('user_id', '==', user_id).order_by('timestamp', direction='DESCENDING').stream())
+        if len(shown_feed_docs_list) > MAX_FEED_HISTORY:
+            for doc in shown_feed_docs_list[MAX_FEED_HISTORY:]:
+                firebase.db.collection('userShownFeeds').document(doc.id).delete()
+            print(f"[API] Kullanıcı {user_id} için eski feed kayıtları limit nedeniyle silindi.")
         return jsonify({
             'success': True,
             'recommendations': final_mix,
