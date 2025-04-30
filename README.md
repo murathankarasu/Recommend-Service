@@ -123,6 +123,9 @@ Analyzes which emotions the user responds to most based on past interactions.
 - If the user selected "Joy" in 6 out of 10 interactions and "Love" in 4:
   - `{"Joy": 0.6, "Love": 0.4, ...}`
 
+### Always-Up-to-Date Emotion Pattern
+The user's emotion pattern is recalculated and updated on **every** feed request, ensuring that recommendations always reflect the user's most recent interactions and emotional state.
+
 ---
 
 ## 4. Content Mix and Ranking
@@ -344,3 +347,84 @@ The system is designed to be scalable against increasing numbers of users and co
 ## License
 
 Lori
+
+## 16. Handling Dislike Interactions and Gradual Emotion Suppression
+
+When a user gives a **dislike** interaction to a content with a specific emotion, the system dynamically reduces the weight of that emotion in the user's emotion pattern:
+
+- **First Dislike:**
+  - If the emotion's ratio in the pattern is above 50%, it is immediately reduced to 50%.
+- **Subsequent Dislikes:**
+  - If the emotion's ratio is already below 50%, each new dislike further reduces the ratio by 2.5% (i.e., `ratio = ratio * 0.975`).
+- This ensures that repeated dislikes do not instantly zero out the emotion, but gradually decrease its influence in recommendations.
+- The pattern is always normalized after these adjustments.
+
+**Example:**
+- Initial: `{"Joy": 0.7, "Love": 0.2, ...}`
+- After first dislike on Joy: `{"Joy": 0.5, ...}`
+- After another dislike on Joy: `{"Joy": 0.4875, ...}`
+- And so on, with each dislike causing a softer reduction.
+
+This mechanism prevents a single emotion from dominating the feed and allows the system to adapt to the user's negative feedback in a controlled, gradual way.
+
+## 17. No Interaction (Stretching) Mechanism
+
+If the user does **not interact** with any content in the feed (no like, dislike, comment, vs.), the system automatically activates a stretching mechanism to increase diversity:
+
+- The dominant emotion's ratio in the pattern is pulled down to 50%.
+- The remaining 50% is distributed equally among all other emotions.
+- This prevents the system from getting stuck on a single emotion and ensures the user is exposed to a wider variety of emotional content.
+- As soon as the user starts interacting again, the pattern returns to being dynamically updated based on their new interactions.
+
+**Example:**
+- Before: `{"Joy": 0.8, "Love": 0.1, "Sadness": 0.1, ...}`
+- After no interaction: `{"Joy": 0.5, "Love": 0.1, "Sadness": 0.1, ...}` (the rest is distributed equally)
+
+This mechanism helps keep the recommendations fresh and engaging, even for passive or indecisive users.
+
+## 18. Feed Content Uniqueness and Repeat Handling
+
+The recommendation algorithm prioritizes showing content that the user has **not seen before** in each feed request:
+
+- **Primary Goal:** Always fill the feed with as many new (unseen) posts as possible.
+- **If there are not enough new posts:** The remaining slots are filled with previously shown posts (repeats), but only as much as needed to reach the feed limit (e.g., 20 posts).
+- **Diversity:** The algorithm still ensures at least one post from each emotion if available, and applies emotion pattern and diversity rules.
+- **Result:** Users are exposed to fresh content as much as possible, and only see repeats when the content pool is insufficient.
+
+**Example:**
+- If there are 15 new posts and 5 repeats needed, the feed will contain 15 new + 5 repeated posts.
+- If there are 20 or more new posts, the feed will contain only new posts.
+
+This mechanism keeps the user experience fresh and prevents monotony, while guaranteeing the feed is always fully populated.
+
+### Feed Reset When No Unseen Content Remains
+If there are no unseen (previously unshown) posts left for the user, the system does **not** fall back to the cold start algorithm. Instead, the user's feed history (`userShownFeeds`) is automatically cleared, and the feed is regenerated from scratch using the user's current emotion pattern. This ensures that the user always receives recommendations aligned with their latest emotional tendencies, even after exhausting all available content.
+
+## 19. Automatic Feed History Reset for Scalability
+
+To keep the backend scalable and cost-effective for social media use cases, the system automatically resets the user's feed history if there is no feed request for a certain period (e.g., 10 minutes):
+
+- **Mechanism:**
+  - On each feed request, the user's last feed activity timestamp is updated.
+  - If a new feed request arrives after more than 10 minutes of inactivity, all previous feed history (shown post IDs) is deleted.
+  - The next feed is generated as if the user is starting fresh (no shown post IDs).
+- **Benefits:**
+  - Prevents the backend database from growing indefinitely with old feed history.
+  - Reduces storage costs and keeps the system performant.
+  - Ensures that users who return after a long break get a fresh feed experience.
+
+**Example:**
+- User requests a feed, sees 20 posts, and then leaves the app.
+- If the user returns after 15 minutes, their previous feed history is cleared and a new feed is generated from scratch.
+
+This mechanism is especially useful for high-traffic social media apps to keep server resources under control.
+
+## 20. Feed History Size Limit
+
+To further optimize backend performance and cost, the system enforces a maximum feed history limit per user (default: 100 feeds):
+
+- **If a user's feed history exceeds 100 records, the oldest records are automatically deleted.**
+- This ensures that even highly active users do not cause unbounded growth in the backend database.
+- The limit can be adjusted as needed for different scalability requirements.
+
+This approach keeps the system efficient and cost-effective for all user activity levels.
