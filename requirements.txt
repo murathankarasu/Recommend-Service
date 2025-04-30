@@ -1,5 +1,0 @@
-flask[async]
-flask-cors
-firebase-admin
-python-dotenv
-gunicorn 
