@@ -168,8 +168,13 @@ class ContentRecommender:
             if emotion:
                 emotion_to_contents[emotion].append(content)
         # 4. Her duygudan en az 1 içerik (varsa) ekle, yakın tarihli olanları öne al
+        def safe_parse_timestamp(ts):
+            dt = parse_timestamp(ts)
+            if dt is None:
+                return datetime(1970, 1, 1, tzinfo=None)
+            return dt
         for emotion, content_list in emotion_to_contents.items():
-            sorted_list = sorted(content_list, key=lambda c: parse_timestamp(c.get('timestamp')) or '', reverse=True)
+            sorted_list = sorted(content_list, key=lambda c: safe_parse_timestamp(c.get('timestamp')), reverse=True)
             if sorted_list:
                 selected.append(sorted_list[0])
         # 5. Pattern oranına göre kalan slotları doldur
