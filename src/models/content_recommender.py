@@ -1,7 +1,7 @@
 import logging
 import random
 from typing import Dict, List, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from config.config import (
     CONTENT_QUALITY_METRICS,
     TIME_BASED_OPTIMIZATION,
@@ -171,8 +171,10 @@ class ContentRecommender:
         def safe_parse_timestamp(ts):
             dt = parse_timestamp(ts)
             if dt is None:
-                return datetime(1970, 1, 1, tzinfo=None)
-            return dt
+                return datetime(1970, 1, 1, tzinfo=timezone.utc)
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
         for emotion, content_list in emotion_to_contents.items():
             sorted_list = sorted(content_list, key=lambda c: safe_parse_timestamp(c.get('timestamp')), reverse=True)
             if sorted_list:
