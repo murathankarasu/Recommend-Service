@@ -20,6 +20,7 @@ from config.config import (
 import os
 import traceback
 import asyncio
+import base64
 # --- Yardımcı modüller ---
 from services.reccomend_service.user_history_utils import get_recent_shown_post_ids
 from services.reccomend_service.ab_test_logger import log_recommendation_event
@@ -29,6 +30,14 @@ from datetime import datetime, timezone, timedelta
 
 app = Flask(__name__)
 CORS(app)
+
+# Railway veya başka bir ortamda FIREBASE_CREDENTIALS değişkeni varsa dosyaya yaz
+firebase_creds_b64 = os.getenv("FIREBASE_CREDENTIALS")
+if firebase_creds_b64:
+    creds_path = os.path.join(os.path.dirname(__file__), "config", "lorien-app-tr-firebase-adminsdk.json")
+    os.makedirs(os.path.dirname(creds_path), exist_ok=True)
+    with open(creds_path, "wb") as f:
+        f.write(base64.b64decode(firebase_creds_b64))
 
 # Servisleri başlat
 firebase = FirebaseInteractionService()
