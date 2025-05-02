@@ -130,44 +130,28 @@ class ContentRecommender:
             self.content_engagement[content_id].get(interaction_type, 0) + 1
         )
 
-    def get_content_mix(self, contents: List[Dict], emotion_pattern: Dict[str, float], limit: int = 20, shown_post_ids: List[Any] = None, repeat_ratio: float = 0.2) -> List[Dict]:
+    def get_content_mix(self, contents: List[Dict], emotion_pattern: Dict[str, float], limit: int = 20, shown_post_ids: List[Any] = None, repeat_ratio: float = 0.2, timeout_sec: int = 3) -> List[Dict]:
         """
         Kullanıcıya önerilecek içerik karışımını oluşturur:
-        - Öncelik: Daha önce gösterilmemiş içerikler (unseen)
+        - Öncelik: Son 1 haftanın unseen içerikleri (duygu patternine uygun hikaye)
+        - Eğer 1 haftalık unseen içerik yetersizse, tüm unseen içeriklerden doldur
         - Eğer unseen içerik yetersizse, kalan slotları cold start ile doldur
         - Cold start da yetersizse, tekrarlarla doldur
         - Her duygudan en az 1 içerik eklemeye çalışır
         - Pattern ve çeşitlilik kurallarına uyar
+        - Timeout ile işlem süresi sınırlandırılır
         """
+        import time
         from collections import defaultdict
         import heapq
+        from datetime import timedelta
+        start_time = time.time()
+        logger.info(f"[get_content_mix] Başladı. İçerik: {len(contents)}, shown_post_ids: {len(shown_post_ids) if shown_post_ids else 0}, limit: {limit}")
         if shown_post_ids is None:
             shown_post_ids = []
-        # 1. Daha önce gösterilen içerikleri hariç tut
-        unseen_contents = [c for c in contents if c.get('id') not in shown_post_ids]
-        # 2. Eğer unseen içerik yetersizse, kalan slotları cold start ile doldur
-        selected = []
-        if len(unseen_contents) < limit:
-            # Cold start ile eksik slotları doldur
-            cold_start_needed = limit - len(unseen_contents)
-            cold_start_contents = get_cold_start_content(
-                contents,  # shown_post_ids ile filtreleme YOK!
-                list(EMOTION_CATEGORIES.values()),
-                cold_start_needed
-            )
-            unseen_contents += cold_start_contents
-            # Hala eksik varsa, tekrarları ekle (en son çare)
-            if len(unseen_contents) < limit:
-                seen_contents = [c for c in contents if c.get('id') in shown_post_ids]
-                random.shuffle(seen_contents)
-                unseen_contents += seen_contents[:limit - len(unseen_contents)]
-        # 3. İçerikleri duygulara göre grupla
-        emotion_to_contents = defaultdict(list)
-        for content in unseen_contents:
-            emotion = content.get('emotion')
-            if emotion:
-                emotion_to_contents[emotion].append(content)
-        # 4. Her duygudan en az 1 içerik (varsa) ekle, yakın tarihli olanları öne al
+        # 1. Son 1 haftanın unseen içeriklerini filtrele
+        now = datetime.now(timezone.utc)
+        one_week_ago = now - timedelta(days=7)
         def safe_parse_timestamp(ts):
             dt = parse_timestamp(ts)
             if dt is None:
@@ -175,16 +159,53 @@ class ContentRecommender:
             if dt.tzinfo is None:
                 return dt.replace(tzinfo=timezone.utc)
             return dt.astimezone(timezone.utc)
+        unseen_contents = [c for c in contents if c.get('id') not in shown_post_ids and safe_parse_timestamp(c.get('timestamp')) >= one_week_ago]
+        logger.info(f"[get_content_mix] Son 1 haftanın unseen içerikleri: {len(unseen_contents)}")
+        # Eğer yeterli değilse, tüm unseen içerikleri ekle
+        if len(unseen_contents) < limit:
+            extra_unseen = [c for c in contents if c.get('id') not in shown_post_ids and c not in unseen_contents]
+            unseen_contents += extra_unseen
+            logger.info(f"[get_content_mix] Tüm unseen içerikler eklendi: {len(unseen_contents)}")
+        # 2. Eğer unseen içerik yetersizse, kalan slotları cold start ile doldur
+        selected = []
+        if len(unseen_contents) < limit:
+            logger.info(f"[get_content_mix] Cold start içerik ekleniyor. Eksik slot: {limit - len(unseen_contents)}")
+            cold_start_needed = limit - len(unseen_contents)
+            cold_start_contents = get_cold_start_content(
+                contents,  # shown_post_ids ile filtreleme YOK!
+                list(EMOTION_CATEGORIES.values()),
+                cold_start_needed
+            )
+            unseen_contents += cold_start_contents
+            logger.info(f"[get_content_mix] Cold start sonrası unseen_contents: {len(unseen_contents)}")
+            # Hala eksik varsa, tekrarları ekle (en son çare)
+            if len(unseen_contents) < limit:
+                seen_contents = [c for c in contents if c.get('id') in shown_post_ids]
+                random.shuffle(seen_contents)
+                unseen_contents += seen_contents[:limit - len(unseen_contents)]
+                logger.info(f"[get_content_mix] Tekrar içerikler eklendi. unseen_contents: {len(unseen_contents)}")
+        # 3. İçerikleri duygulara göre grupla
+        emotion_to_contents = defaultdict(list)
+        for content in unseen_contents:
+            emotion = content.get('emotion')
+            if emotion:
+                emotion_to_contents[emotion].append(content)
+        logger.info(f"[get_content_mix] emotion_to_contents oluşturuldu. Duygu sayısı: {len(emotion_to_contents)}")
+        # 4. Her duygudan en az 1 içerik (varsa) ekle, yakın tarihli olanları öne al
         for emotion, content_list in emotion_to_contents.items():
             sorted_list = sorted(content_list, key=lambda c: safe_parse_timestamp(c.get('timestamp')), reverse=True)
             if sorted_list:
                 selected.append(sorted_list[0])
+        logger.info(f"[get_content_mix] Her duygudan içerik eklendi. selected: {len(selected)}")
         # 5. Pattern oranına göre kalan slotları doldur
         remaining_limit = limit - len(selected)
         if remaining_limit > 0:
+            logger.info(f"[get_content_mix] Pattern oranına göre slot dolduruluyor. Kalan: {remaining_limit}")
             scored_contents = []
-            now = datetime.now()
             for content in unseen_contents:
+                if time.time() - start_time > timeout_sec:
+                    logger.warning(f"[get_content_mix] TIMEOUT! Süre aşıldı. Şu ana kadar seçilen içerik: {len(selected)}")
+                    break
                 emotion = content.get('emotion')
                 if not emotion:
                     continue
@@ -208,6 +229,7 @@ class ContentRecommender:
             filtered = [(score, c) for score, c in scored_contents if c['id'] not in selected_ids]
             shuffled = shuffle_same_score(filtered)
             selected += shuffled[:remaining_limit]
+            logger.info(f"[get_content_mix] Pattern sonrası selected: {len(selected)}")
         # 6. Eğer tek bir duygu çok baskınsa, diğer duygulardan da ekle (çeşitlilik)
         emotion_counts = defaultdict(int)
         for c in selected:
@@ -215,6 +237,7 @@ class ContentRecommender:
         if emotion_counts:
             max_emotion = max(emotion_counts, key=emotion_counts.get)
             if emotion_counts[max_emotion] > limit * 0.7:
+                logger.info(f"[get_content_mix] Çeşitlilik için ek içerik ekleniyor. Baskın duygu: {max_emotion}")
                 for emotion, content_list in emotion_to_contents.items():
                     if emotion == max_emotion:
                         continue
@@ -225,5 +248,5 @@ class ContentRecommender:
                                 break
                     if len(selected) >= limit:
                         break
-        # 7. Sonuç: Her zaman limit kadar içerik döndür
+        logger.info(f"[get_content_mix] TAMAMLANDI. Sonuç: {len(selected[:limit])} içerik, Toplam süre: {time.time() - start_time:.2f} sn")
         return selected[:limit] 

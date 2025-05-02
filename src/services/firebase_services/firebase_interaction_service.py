@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Dict, List
 from .firebase_base import FirebaseBase
-from config import COLLECTION_INTERACTIONS, COLLECTION_POSTS
+from config import COLLECTION_INTERACTIONS, COLLECTION_POSTS, COLLECTION_USER_STORY_FLOW
 import logging
 import traceback
 
@@ -113,3 +113,18 @@ class FirebaseInteractionService(FirebaseBase):
         except Exception as e:
             self.logger.error(f"Etkileşim kaydedilirken hata: {str(e)}")
             raise 
+
+    async def save_user_story_flow(self, user_id: str, story_flow: list) -> bool:
+        """Kullanıcının hikaye akışını (duygu geçişleri) Firestore'a kaydeder"""
+        try:
+            data = {
+                "userId": user_id,
+                "storyFlow": story_flow,
+                "timestamp": datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+            }
+            doc_ref = self.db.collection(COLLECTION_USER_STORY_FLOW).document(user_id)
+            doc_ref.set(data)
+            return True
+        except Exception as e:
+            self.logger.error(f"Hikaye akışı kaydedilirken hata: {str(e)}")
+            return False 

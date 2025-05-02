@@ -51,6 +51,7 @@ COLLECTION_AD_METRICS = 'adMetrics'
 COLLECTION_INTERACTIONS = 'userEmotionInteractions'
 COLLECTION_POST_METRICS = 'postMetrics'
 COLLECTION_USER_EMOTION_HISTORY = 'userEmotionHistory'
+COLLECTION_USER_STORY_FLOW = 'userStoryFlow'
 
 # API yapılandırması
 API_HOST = os.getenv('API_HOST', '0.0.0.0')
@@ -118,6 +119,7 @@ INTERACTION_TYPE_WEIGHTS = {
     'post': 0.2,      # Paylaşım: %20 ağırlık
     'ad_click': 0.1,  # Reklam tıklama: %10 ağırlık
     'ad_view': 0.05,  # Reklam görüntüleme: %5 ağırlık
+    'detail_view': 0.08, # Detaylı görüntüleme: %8 ağırlık
     'ignore': -0.03,  # Göz ardı etme: -%3 ağırlık
     'dislike': -0.05  # Beğenmeme: -%5 ağırlık
 }

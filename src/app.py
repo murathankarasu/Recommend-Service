@@ -27,6 +27,7 @@ from services.reccomend_service.ab_test_logger import log_recommendation_event
 from services.reccomend_service.cold_start_utils import get_cold_start_content
 from services.reccomend_service.date_utils import parse_timestamp
 from datetime import datetime, timezone, timedelta
+import time
 
 app = Flask(__name__)
 CORS(app)
@@ -75,37 +76,86 @@ def has_interaction_with_posts(user_interactions, post_ids):
 
 @app.route('/api/recommendations/<user_id>', methods=['GET'])
 def get_recommendations(user_id):
+    print(f"[API] /api/recommendations endpoint çağrıldı: user_id={user_id}")
     try:
         now = datetime.now(timezone.utc)
         # 1. Son aktiviteyi Firestore'dan çek
-        last_active_doc = firebase.db.collection('userFeedLastActive').document(user_id).get()
+        print("[API DEBUG] Fetching last active doc...")
+        last_active_doc = None # Ön tanımlama
+        try:
+            last_active_doc = firebase.db.collection('userFeedLastActive').document(user_id).get()
+            print(f"[API DEBUG] Fetched last active doc. Exists: {last_active_doc.exists}")
+        except Exception as get_err:
+            print(f"[API ERROR] userFeedLastActive get() hatası: {get_err}")
+            traceback.print_exc()
+            # Hata durumunda last_active_doc None kalacak ve akış devam edecek
+            # veya burada doğrudan bir hata yanıtı döndürebiliriz:
+            # return jsonify({'success': False, 'error': 'Firestore get error', ...}), 500
+        
         last_active = None
-        if last_active_doc.exists:
-            last_active = last_active_doc.to_dict().get('last_active')
+        if last_active_doc and last_active_doc.exists: # None kontrolü eklendi
+            last_active_data = last_active_doc.to_dict()
+            print(f"[API DEBUG] Last active data: {last_active_data}")
+            last_active = last_active_data.get('last_active')
             if last_active:
-                last_active = datetime.fromisoformat(last_active)
+                try:
+                    last_active = datetime.fromisoformat(last_active)
+                    print(f"[API DEBUG] Parsed last_active: {last_active}")
+                except Exception as parse_err:
+                    print(f"[API WARNING] last_active parse edilemedi: {parse_err}")
+                    last_active = None # Hata durumunda None olarak devam et
+
         # 2. 10 dakikadan fazla geçtiyse feed geçmişini sil
         if last_active and (now - last_active) > timedelta(minutes=10):
-            shown_feed_docs = firebase.db.collection('userShownFeeds').where('user_id', '==', user_id).stream()
-            for doc in shown_feed_docs:
-                firebase.db.collection('userShownFeeds').document(doc.id).delete()
-            print(f"[API] Kullanıcı {user_id} için eski feed geçmişi silindi.")
+            print("[API DEBUG] Feed history is older than 10 minutes. Deleting old feeds...")
+            try:
+                shown_feed_docs = firebase.db.collection('userShownFeeds').where('user_id', '==', user_id).stream()
+                print("[API DEBUG] Fetched shown feeds stream object for deletion.")
+                deleted_count = 0
+                for doc in shown_feed_docs:
+                    firebase.db.collection('userShownFeeds').document(doc.id).delete()
+                    deleted_count += 1
+                print(f"[API] Kullanıcı {user_id} için {deleted_count} adet eski feed geçmişi silindi.")
+            except Exception as delete_err:
+                print(f"[API ERROR] Eski feed geçmişi silinirken hata: {delete_err}")
+                traceback.print_exc()
             shown_post_ids = []
         else:
             shown_post_ids = []
+            print("[API DEBUG] Fetching recent shown feeds...")
             try:
                 shown_feed_docs = firebase.db.collection('userShownFeeds').where('user_id', '==', user_id).order_by('timestamp', direction='DESCENDING').limit(100).stream()
+                print("[API DEBUG] Fetched recent shown feeds stream object.")
+                count = 0
                 for doc in shown_feed_docs:
                     data = doc.to_dict()
                     shown_post_ids.extend(data.get('post_ids', []))
+                    count += 1
+                print(f"[API DEBUG] Found {count} shown feed documents. Total shown_post_ids: {len(shown_post_ids)}")
             except Exception as e:
-                print(f"[API] shown_post_ids çekilemedi: {e}")
+                print(f"[API ERROR] shown_post_ids çekilemedi: {e}")
+                traceback.print_exc() # Hata durumunda traceback yazdır
+
         # 3. Son aktiviteyi güncelle
-        firebase.db.collection('userFeedLastActive').document(user_id).set({'last_active': now.isoformat()})
+        print("[API DEBUG] Updating last active timestamp...")
+        try:
+            firebase.db.collection('userFeedLastActive').document(user_id).set({'last_active': now.isoformat()})
+            print("[API DEBUG] Updated last active timestamp.")
+        except Exception as update_err:
+             print(f"[API ERROR] Son aktivite güncellenirken hata: {update_err}")
+             traceback.print_exc() # Hata durumunda traceback yazdır
+
         # Kullanıcı etkileşimlerini getir
         print("[API] Kullanıcı etkileşimleri getiriliyor...")
-        user_interactions = run_async(firebase.get_user_interactions(user_id))
-        print(f"[API] Kullanıcı etkileşimleri alındı: {len(user_interactions)} adet etkileşim")
+        try:
+            user_interactions = run_async(asyncio.wait_for(firebase.get_user_interactions(user_id), timeout=5))
+            print(f"[API] Kullanıcı etkileşimleri alındı: {len(user_interactions)} adet etkileşim")
+        except asyncio.TimeoutError:
+            print("[API ERROR] Firebase'den kullanıcı etkileşimleri çekerken zaman aşımı!")
+            user_interactions = []
+        except Exception as e:
+            print(f"[API ERROR] Kullanıcı etkileşimleri alınamadı: {e}")
+            user_interactions = []
         # İçerikleri getir
         print("[API] İçerikler getiriliyor...")
         contents = run_async(firebase_post.get_all_posts())
@@ -143,7 +193,14 @@ def get_recommendations(user_id):
                 shown_post_ids = []
                 content_mix = content_recommender.get_content_mix(contents, emotion_pattern, 20, shown_post_ids=shown_post_ids)
         # Reklamları ekle
-        final_mix = run_async(ad_manager.insert_ads(content_mix, user_id))
+        print("[LOG] insert_ads başlatılıyor...")
+        ads_start = time.time()
+        try:
+            final_mix = run_async(ad_manager.insert_ads(content_mix, user_id))
+            print(f"[LOG] insert_ads tamamlandı. Süre: {time.time() - ads_start:.2f} sn")
+        except Exception as e:
+            print(f"[ERROR] insert_ads hatası: {e}")
+            final_mix = content_mix
         # --- GÖSTERİLEN FEED'İ KAYDET ---
         try:
             feed_post_ids = [c['id'] for c in final_mix if 'id' in c]
@@ -178,7 +235,7 @@ def get_recommendations(user_id):
         
     except Exception as e:
         print(f"[API ERROR] Öneri getirme hatası: {str(e)}")
-        traceback.print_exc()
+        traceback.print_exc() # Ana hata yakalama bloğunda traceback yazdır
         return jsonify({
             'success': False,
             'error': str(e),
@@ -246,6 +303,11 @@ def track_interaction():
             'success': False,
             'error': str(e)
         }), 500
+
+@app.route('/api/ping', methods=['GET'])
+def ping():
+    print("[API] /api/ping çağrıldı")
+    return jsonify({"success": True, "message": "pong"})
 
 if __name__ == '__main__':
     app.run(host=API_HOST, port=API_PORT, debug=True) 

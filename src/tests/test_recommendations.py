@@ -3,7 +3,7 @@ import json
 import time
 
 # Kullanıcı ID'si
-user_id = "2Tg5z2v2HmN8Q4RFK5R487sw4zA2"
+user_id = "isRKPOpG4zVFmULHJjrsvY8t1Nb2"
 
 # API adresi
 url = f"http://0.0.0.0:8000/api/recommendations/{user_id}"
