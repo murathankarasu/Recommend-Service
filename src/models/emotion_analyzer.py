@@ -1,6 +1,7 @@
 import logging
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple, Optional
 from datetime import datetime, timedelta, timezone
+from collections import defaultdict
 from config.config import (
     EMOTION_CATEGORIES,
     OPPOSITE_EMOTIONS,
@@ -8,6 +9,7 @@ from config.config import (
     EMOTION_TRANSITION_MATRIX,
     EMOTION_ANALYSIS_CONFIDENCE
 )
+from services.reccomend_service.date_utils import parse_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +95,123 @@ class EmotionAnalyzer:
         except Exception as e:
             print(f"[EmotionAnalyzer ERROR] Duygu deseni analizi hatası: {str(e)}")
             return {emotion: 1.0/len(EMOTION_CATEGORIES) for emotion in EMOTION_CATEGORIES.values()}
+
+    def analyze_transition_patterns(self, interactions: List[Dict]) -> Dict[Tuple[str, str], int]:
+        """
+        Analyzes the user's historical interactions to count emotion transitions.
+
+        Args:
+            interactions: List of user interaction dictionaries, ideally sorted by timestamp.
+
+        Returns:
+            A dictionary where keys are (from_emotion, to_emotion) tuples
+            and values are the count of that transition observed.
+            Example: {('Sadness', 'Joy'): 5, ('Joy', 'Surprise'): 3}
+        """
+        transition_counts = defaultdict(int)
+        if len(interactions) < 2:
+            return {}
+
+        # Ensure interactions are sorted by time for accurate transitions
+        sorted_interactions = []
+        try:
+            interactions_with_dt = []
+            for i in interactions:
+                dt = parse_timestamp(i.get('timestamp'))
+                emotion = i.get('emotion')
+                # Include only interactions with valid timestamps and emotions for transition analysis
+                if dt and emotion and emotion in self.emotion_categories.values():
+                    interactions_with_dt.append((dt, i))
+
+            if len(interactions_with_dt) < 2:
+                return {}
+
+            interactions_with_dt.sort(key=lambda x: x[0]) # Sort ascending by time
+            sorted_interactions = [item[1] for item in interactions_with_dt]
+
+        except Exception as e:
+            logger.warning(f"Could not sort interactions for transition analysis: {e}. Returning empty transitions.")
+            return {}
+
+        # Count transitions between consecutive interactions
+        for i in range(len(sorted_interactions) - 1):
+            from_emotion = sorted_interactions[i].get('emotion')
+            to_emotion = sorted_interactions[i+1].get('emotion')
+
+            # We already pre-filtered for valid emotions during sorting prep
+            if from_emotion and to_emotion:
+                transition_counts[(from_emotion, to_emotion)] += 1
+
+        logger.info(f"Analyzed user transitions: Found {len(transition_counts)} unique transitions.")
+        # Optional: Convert counts to probabilities if needed later, but counts are fine for now.
+        # total_transitions_from = defaultdict(int)
+        # for (from_e, to_e), count in transition_counts.items():
+        #     total_transitions_from[from_e] += count
+        # transition_probabilities = {trans: count / total_transitions_from[trans[0]]
+        #                           for trans, count in transition_counts.items()
+        #                           if total_transitions_from[trans[0]] > 0}
+
+        return dict(transition_counts) # Convert back to regular dict
+
+    def get_current_emotion_and_transitions(self, interactions: List[Dict]) -> Tuple[Optional[str], Dict[str, float]]:
+        """
+        Finds the most recent interaction's emotion as the 'current emotion'
+        and predicts potential next emotions using the transition matrix.
+
+        Returns:
+            Tuple[Optional[str], Dict[str, float]]:
+                - The determined current emotion (or None if no valid recent interaction).
+                - A dictionary of {next_emotion: probability} based on the transition matrix.
+        """
+        if not interactions:
+            return None, {}
+
+        # Sort interactions by timestamp descending to find the latest one
+        try:
+            # Attempt to parse timestamps and sort
+            interactions_with_dt = []
+            for i in interactions:
+                dt = parse_timestamp(i.get('timestamp'))
+                if dt:
+                    interactions_with_dt.append((dt, i))
+
+            if not interactions_with_dt:
+                 # Fallback if no parsable timestamps: assume list is somewhat ordered
+                 # or just take the last element might be risky
+                 # Let's try taking the last one with a valid emotion
+                last_interaction = None
+                for i in reversed(interactions):
+                    if i.get('emotion') in self.emotion_categories.values():
+                        last_interaction = i
+                        break
+            else:
+                interactions_with_dt.sort(key=lambda x: x[0], reverse=True)
+                last_interaction = interactions_with_dt[0][1]
+
+        except Exception as e:
+            logger.warning(f"Could not sort interactions by timestamp: {e}")
+            # Fallback: try finding the last interaction with a valid emotion
+            last_interaction = None
+            for i in reversed(interactions):
+                 if i.get('emotion') in self.emotion_categories.values():
+                    last_interaction = i
+                    break
+
+        if not last_interaction:
+            return None, {}
+
+        current_emotion = last_interaction.get('emotion')
+
+        if current_emotion not in self.emotion_categories.values():
+             return None, {} # Invalid emotion
+
+        # Predict next emotions using the transition matrix
+        predicted_transitions = self._predict_emotion_transition(current_emotion)
+
+        logger.info(f"Current emotion determined as: {current_emotion}")
+        logger.info(f"Predicted next transitions: {predicted_transitions}")
+
+        return current_emotion, predicted_transitions
 
     def _check_emotion_continuity(self, interactions: List[Dict[str, Any]]) -> bool:
         """Kullanıcının tek duyguda takılıp kalmadığını kontrol eder"""

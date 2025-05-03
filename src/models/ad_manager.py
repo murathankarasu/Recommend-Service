@@ -1,7 +1,7 @@
 import logging
 import random
-from typing import Dict, List, Any
-from datetime import datetime
+from typing import Dict, List, Any, Optional
+from datetime import datetime, timezone
 from config.config import (
     COLLECTION_ADS,
     COLLECTION_AD_METRICS,
@@ -140,39 +140,56 @@ class AdManager:
         except Exception as e:
             logger.error(f"Reklam etkileşimi takip edilirken hata: {str(e)}")
 
-    async def insert_ads(self, contents: List[Dict[str, Any]], user_id: str = None) -> List[Dict[str, Any]]:
-        """İçeriklere reklamları ekler"""
+    async def insert_ads(
+        self,
+        contents: List[Dict[str, Any]],
+        peak_moment_index: Optional[int],
+        user_id: str = None
+    ) -> List[Dict[str, Any]]:
+        """Inserts an ad strategically after the emotional peak moment."""
         try:
-            if not contents:
-                return []
+            if not contents or peak_moment_index is None or peak_moment_index <= 0 or peak_moment_index >= len(contents):
+                logger.info("[AdManager] No valid peak index or contents, returning original list.")
+                return contents
 
-            ad_positions = list(range(self.ad_frequency - 1, len(contents), self.ad_frequency))
-            
             ads = await self.firebase.get_collection(COLLECTION_ADS)
             if not ads:
+                logger.warning("[AdManager] No ads found in Firebase collection.")
                 return contents
 
-            active_ads = [ad for ad in ads if ad.get('is_active', True)]
+            active_ads = [
+                ad for ad in ads
+                if ad.get('is_active', False) and
+                   parse_timestamp(ad.get('end_date', '2000-01-01')) > datetime.now(timezone.utc)
+            ]
+
             if not active_ads:
+                logger.warning("[AdManager] No active ads available.")
                 return contents
 
-            result = contents.copy()
-            for pos in ad_positions:
-                if pos >= len(result):
-                    break
-                    
-                ad = random.choice(active_ads)
-                
-                result.insert(pos, {
-                    'id': ad['id'],
-                    'type': 'ad',
-                    'emotion': ad.get('emotion', 'nötr')
-                })
+            selected_ad_data = random.choice(active_ads)
+            ad_content_to_insert = {
+                'id': selected_ad_data['id'],
+                'type': 'ad',
+                'is_ad': True,
+                'emotion': selected_ad_data.get('target_emotion', 'Neşe (Joy)'),
+                'content': selected_ad_data.get('content', 'Reklam İçeriği'),
+                'metadata': {
+                    'created_at': datetime.now().isoformat(),
+                    'advertiser_id': selected_ad_data.get('advertiser_id'),
+                    'campaign_id': selected_ad_data.get('campaign_id')
+                }
+            }
+
+            result = contents[:peak_moment_index] + [ad_content_to_insert] + contents[peak_moment_index:]
+            logger.info(f"[AdManager] Inserted ad {ad_content_to_insert['id']} at index {peak_moment_index}")
+
+            await self._update_ad_metrics(ad_content_to_insert['id'], 'impression', user_id)
 
             return result
 
         except Exception as e:
-            print(f"[AdManager ERROR] Reklam ekleme hatası: {str(e)}")
+            logger.error(f"[AdManager ERROR] Error inserting ad: {str(e)}", exc_info=True)
             return contents
 
     def _optimize_ad_placement(self, recommendations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -189,3 +206,18 @@ class AdManager:
             optimized_recommendations.append(rec)
         
         return optimized_recommendations 
+
+def parse_timestamp(timestamp_str: Optional[str]) -> Optional[datetime]:
+    if not timestamp_str:
+        return None
+    try:
+        dt = datetime.fromisoformat(timestamp_str)
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except ValueError:
+        logger.debug(f"Could not parse timestamp: {timestamp_str}")
+        return None
+    except Exception as e:
+        logger.error(f"Error parsing timestamp '{timestamp_str}': {e}")
+        return None 

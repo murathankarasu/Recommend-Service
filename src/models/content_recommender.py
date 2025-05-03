@@ -1,6 +1,6 @@
 import logging
 import random
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple, Optional
 from datetime import datetime, timezone
 from config.config import (
     CONTENT_QUALITY_METRICS,
@@ -8,7 +8,9 @@ from config.config import (
     DIVERSITY_CONTROLS,
     INTERACTION_QUALITY_METRICS,
     INTERACTION_TYPE_WEIGHTS,
-    EMOTION_CATEGORIES
+    EMOTION_CATEGORIES,
+    OPPOSITE_EMOTIONS,
+    EMOTION_TRANSITION_MATRIX
 )
 from services.reccomend_service.shuffle_utils import shuffle_same_score
 from services.reccomend_service.date_utils import parse_timestamp
@@ -130,123 +132,212 @@ class ContentRecommender:
             self.content_engagement[content_id].get(interaction_type, 0) + 1
         )
 
-    def get_content_mix(self, contents: List[Dict], emotion_pattern: Dict[str, float], limit: int = 20, shown_post_ids: List[Any] = None, repeat_ratio: float = 0.2, timeout_sec: int = 3) -> List[Dict]:
+    def _find_next_emotion(self,
+                           from_emotion: str,
+                           personalized_transitions: Dict[Tuple[str, str], int],
+                           exclude_emotion: Optional[str] = None) -> Optional[str]:
+        """Finds the most frequent next emotion based on personalized data, with fallback."""
+        candidates = []
+        for (f_emo, t_emo), count in personalized_transitions.items():
+            if f_emo == from_emotion and t_emo != exclude_emotion:
+                candidates.append((count, t_emo))
+
+        if candidates:
+            candidates.sort(key=lambda x: x[0], reverse=True)
+            return candidates[0][1] # Return the emotion with the highest count
+        else:
+            # Fallback to generic matrix if no personalized data for this transition
+            generic_transitions = EMOTION_TRANSITION_MATRIX.get(from_emotion, {})
+            if not generic_transitions:
+                return None
+            # Sort generic transitions by probability
+            sorted_generic = sorted(generic_transitions.items(), key=lambda item: item[1], reverse=True)
+            for emo, prob in sorted_generic:
+                 if emo != from_emotion and emo != exclude_emotion: # Avoid self and excluded
+                      return emo
+            # If only self-transition or excluded exists in generic, return None or the first one?
+            return sorted_generic[0][0] if sorted_generic else None
+
+    def get_content_mix(
+        self,
+        contents: List[Dict],
+        emotion_pattern: Dict[str, float],
+        limit: int = 20,
+        shown_post_ids: List[Any] = None,
+        current_emotion: Optional[str] = None,
+        personalized_transitions: Dict[Tuple[str, str], int] = None,
+        repeat_ratio: float = 0.2,
+        timeout_sec: int = 3
+    ) -> Tuple[List[Dict], Optional[int]]:
         """
-        Kullanıcıya önerilecek içerik karışımını oluşturur:
-        - Öncelik: Son 1 haftanın unseen içerikleri (duygu patternine uygun hikaye)
-        - Eğer 1 haftalık unseen içerik yetersizse, tüm unseen içeriklerden doldur
-        - Eğer unseen içerik yetersizse, kalan slotları cold start ile doldur
-        - Cold start da yetersizse, tekrarlarla doldur
-        - Her duygudan en az 1 içerik eklemeye çalışır
-        - Pattern ve çeşitlilik kurallarına uyar
-        - Timeout ile işlem süresi sınırlandırılır
+        Creates a detailed story flow based on personalized transitions.
+        - Plans a 3-step emotional journey (Current -> Next1 -> Next2) using personalized data.
+        - Selects content for each step.
+        - Identifies the peak moment based on the most frequent personalized transition.
+        - Fills remaining slots based on relevance and diversity.
         """
         import time
         from collections import defaultdict
-        import heapq
         from datetime import timedelta
         start_time = time.time()
-        logger.info(f"[get_content_mix] Başladı. İçerik: {len(contents)}, shown_post_ids: {len(shown_post_ids) if shown_post_ids else 0}, limit: {limit}")
-        if shown_post_ids is None:
-            shown_post_ids = []
-        # 1. Son 1 haftanın unseen içeriklerini filtrele
+
+        if shown_post_ids is None: shown_post_ids = []
+        if personalized_transitions is None: personalized_transitions = {}
+
+        logger.info(f"[get_content_mix] DETAILED FLOW. Current: {current_emotion}, Personalized Transitions: {len(personalized_transitions)}")
+
+        # 1. Prepare content pools (as before)
         now = datetime.now(timezone.utc)
-        one_week_ago = now - timedelta(days=7)
         def safe_parse_timestamp(ts):
             dt = parse_timestamp(ts)
-            if dt is None:
-                return datetime(1970, 1, 1, tzinfo=timezone.utc)
-            if dt.tzinfo is None:
-                return dt.replace(tzinfo=timezone.utc)
+            if dt is None: return datetime(1970, 1, 1, tzinfo=timezone.utc)
+            if dt.tzinfo is None: return dt.replace(tzinfo=timezone.utc)
             return dt.astimezone(timezone.utc)
-        unseen_contents = [c for c in contents if c.get('id') not in shown_post_ids and safe_parse_timestamp(c.get('timestamp')) >= one_week_ago]
-        logger.info(f"[get_content_mix] Son 1 haftanın unseen içerikleri: {len(unseen_contents)}")
-        # Eğer yeterli değilse, tüm unseen içerikleri ekle
-        if len(unseen_contents) < limit:
-            extra_unseen = [c for c in contents if c.get('id') not in shown_post_ids and c not in unseen_contents]
-            unseen_contents += extra_unseen
-            logger.info(f"[get_content_mix] Tüm unseen içerikler eklendi: {len(unseen_contents)}")
-        # 2. Eğer unseen içerik yetersizse, kalan slotları cold start ile doldur
-        selected = []
-        if len(unseen_contents) < limit:
-            logger.info(f"[get_content_mix] Cold start içerik ekleniyor. Eksik slot: {limit - len(unseen_contents)}")
-            cold_start_needed = limit - len(unseen_contents)
-            cold_start_contents = get_cold_start_content(
-                contents,  # shown_post_ids ile filtreleme YOK!
-                list(EMOTION_CATEGORIES.values()),
-                cold_start_needed
-            )
-            unseen_contents += cold_start_contents
-            logger.info(f"[get_content_mix] Cold start sonrası unseen_contents: {len(unseen_contents)}")
-            # Hala eksik varsa, tekrarları ekle (en son çare)
-            if len(unseen_contents) < limit:
-                seen_contents = [c for c in contents if c.get('id') in shown_post_ids]
-                random.shuffle(seen_contents)
-                unseen_contents += seen_contents[:limit - len(unseen_contents)]
-                logger.info(f"[get_content_mix] Tekrar içerikler eklendi. unseen_contents: {len(unseen_contents)}")
-        # 3. İçerikleri duygulara göre grupla
-        emotion_to_contents = defaultdict(list)
-        for content in unseen_contents:
-            emotion = content.get('emotion')
-            if emotion:
-                emotion_to_contents[emotion].append(content)
-        logger.info(f"[get_content_mix] emotion_to_contents oluşturuldu. Duygu sayısı: {len(emotion_to_contents)}")
-        # 4. Her duygudan en az 1 içerik (varsa) ekle, yakın tarihli olanları öne al
-        for emotion, content_list in emotion_to_contents.items():
-            sorted_list = sorted(content_list, key=lambda c: safe_parse_timestamp(c.get('timestamp')), reverse=True)
-            if sorted_list:
-                selected.append(sorted_list[0])
-        logger.info(f"[get_content_mix] Her duygudan içerik eklendi. selected: {len(selected)}")
-        # 5. Pattern oranına göre kalan slotları doldur
-        remaining_limit = limit - len(selected)
-        if remaining_limit > 0:
-            logger.info(f"[get_content_mix] Pattern oranına göre slot dolduruluyor. Kalan: {remaining_limit}")
-            scored_contents = []
-            for content in unseen_contents:
-                if time.time() - start_time > timeout_sec:
-                    logger.warning(f"[get_content_mix] TIMEOUT! Süre aşıldı. Şu ana kadar seçilen içerik: {len(selected)}")
+        recent_unseen = sorted([c for c in contents if c.get('id') not in shown_post_ids and safe_parse_timestamp(c.get('timestamp')) >= now - timedelta(days=7)], key=lambda c: safe_parse_timestamp(c.get('timestamp')), reverse=True)
+        other_unseen = [c for c in contents if c.get('id') not in shown_post_ids and c not in recent_unseen]
+        all_unseen_pool = recent_unseen + other_unseen
+        random.shuffle(all_unseen_pool)
+
+        # 2. Plan the Detailed Story Arc (Current -> Next1 -> Next2)
+        story_arc_emotions = []
+        next_emotion_1 = None
+        next_emotion_2 = None
+
+        if current_emotion:
+            story_arc_emotions.append(current_emotion)
+            # Find Next1
+            next_emotion_1 = self._find_next_emotion(current_emotion, personalized_transitions)
+            if next_emotion_1:
+                story_arc_emotions.append(next_emotion_1)
+                # Find Next2 (try not to repeat current or next1)
+                next_emotion_2 = self._find_next_emotion(next_emotion_1, personalized_transitions, exclude_emotion=current_emotion)
+                # If Next2 repeats Next1, try again excluding both
+                if next_emotion_2 == next_emotion_1:
+                     next_emotion_2 = self._find_next_emotion(next_emotion_1, personalized_transitions, exclude_emotion=[current_emotion, next_emotion_1])
+
+                if next_emotion_2:
+                    story_arc_emotions.append(next_emotion_2)
+
+        logger.info(f"[get_content_mix] Planned story arc: {story_arc_emotions}")
+
+        # 3. Select Content for the Story Arc
+        selected_mix: List[Dict] = []
+        used_content_ids = set()
+        arc_content_indices = {} # Store index of content for each arc emotion
+
+        for i, arc_emotion in enumerate(story_arc_emotions):
+            found_content = False
+            # Prioritize recent unseen, then other unseen
+            for content in recent_unseen + other_unseen:
+                if content.get('emotion') == arc_emotion and content.get('id') not in used_content_ids:
+                    selected_mix.append(content)
+                    used_content_ids.add(content['id'])
+                    arc_content_indices[arc_emotion] = len(selected_mix) - 1 # Store index where it was added
+                    logger.info(f"[get_content_mix] Added arc content [{i+1}/{len(story_arc_emotions)}]: {arc_emotion}")
+                    found_content = True
                     break
+            if not found_content:
+                 logger.warning(f"[get_content_mix] Could not find unseen content for arc step: {arc_emotion}. Stopping arc sequence here.")
+                 # Remove the emotion from the planned arc if no content found
+                 story_arc_emotions = story_arc_emotions[:i]
+                 break
+
+        # 4. Determine the Peak Moment Index
+        peak_moment_index: Optional[int] = None
+        if len(story_arc_emotions) >= 2: # Need at least one transition
+            transition1 = (story_arc_emotions[0], story_arc_emotions[1])
+            transition1_count = personalized_transitions.get(transition1, 0)
+            peak_transition = transition1
+            highest_count = transition1_count
+
+            if len(story_arc_emotions) >= 3:
+                transition2 = (story_arc_emotions[1], story_arc_emotions[2])
+                transition2_count = personalized_transitions.get(transition2, 0)
+                if transition2_count > highest_count:
+                    peak_transition = transition2
+                    highest_count = transition2_count
+                # If counts are equal, maybe prefer the one leading to a more positive emotion?
+                # Or just keep the first one (transition1) for simplicity if counts are equal.
+
+            # Set peak index *after* the content of the emotion reached by the peak transition
+            peak_emotion_reached = peak_transition[1]
+            if peak_emotion_reached in arc_content_indices:
+                peak_moment_index = arc_content_indices[peak_emotion_reached] + 1
+                logger.info(f"[get_content_mix] Peak determined after emotion '{peak_emotion_reached}' (Transition: {peak_transition} Count: {highest_count}). Peak index: {peak_moment_index}")
+            else: # Fallback if something went wrong with indexing
+                 if len(selected_mix) >= 1: peak_moment_index = 1
+                 if len(selected_mix) >= 2: peak_moment_index = 2 # Default to after first or second item
+                 logger.warning("[get_content_mix] Could not map peak emotion to index, using default peak index.")
+        elif len(selected_mix) > 0: # If only one arc item, peak is after it
+             peak_moment_index = 1
+             logger.info("[get_content_mix] Only one arc item, setting peak index to 1.")
+
+
+        # 5. Fill Remaining Slots (similar logic as before, maybe add bonus for arc emotions)
+        remaining_limit = limit - len(selected_mix)
+        if remaining_limit > 0:
+            logger.info(f"[get_content_mix] Filling remaining {remaining_limit} slots.")
+            remaining_pool = [c for c in all_unseen_pool if c.get('id') not in used_content_ids]
+            scored_contents = []
+            for content in remaining_pool:
+                if time.time() - start_time > timeout_sec:
+                    logger.warning(f"[get_content_mix] TIMEOUT during filling remaining slots!")
+                    break
+
                 emotion = content.get('emotion')
-                if not emotion:
-                    continue
+                if not emotion: continue
+
                 pattern_score = emotion_pattern.get(emotion, 0.0)
                 relevance = self.calculate_content_relevance(content, emotion_pattern)
-                timestamp = content.get('timestamp')
                 recency_score = 0.2
                 try:
-                    dt = parse_timestamp(timestamp)
-                    if dt:
-                        days_ago = (now - dt).days
-                        if days_ago <= 7:
-                            recency_score = 1.0
-                        elif days_ago <= 30:
-                            recency_score = 0.5
-                except Exception:
-                    pass
-                total_score = pattern_score * 0.5 + relevance * 0.3 + recency_score * 0.2
+                    dt = parse_timestamp(content.get('timestamp'))
+                    if dt: days_ago = (now - dt).days
+                    else: days_ago = 999
+                    if days_ago <= 1: recency_score = 1.0
+                    elif days_ago <= 7: recency_score = 0.7
+                    elif days_ago <= 30: recency_score = 0.4
+                except Exception: pass
+
+                # Bonus if emotion is part of the planned (even if not achieved) arc
+                story_bonus = 0.05 if emotion in story_arc_emotions else 0.0
+
+                total_score = pattern_score * 0.4 + relevance * 0.3 + recency_score * 0.15 + story_bonus * 0.1
                 scored_contents.append((total_score, content))
-            selected_ids = set(c['id'] for c in selected)
-            filtered = [(score, c) for score, c in scored_contents if c['id'] not in selected_ids]
-            shuffled = shuffle_same_score(filtered)
-            selected += shuffled[:remaining_limit]
-            logger.info(f"[get_content_mix] Pattern sonrası selected: {len(selected)}")
-        # 6. Eğer tek bir duygu çok baskınsa, diğer duygulardan da ekle (çeşitlilik)
-        emotion_counts = defaultdict(int)
-        for c in selected:
-            emotion_counts[c.get('emotion')] += 1
-        if emotion_counts:
-            max_emotion = max(emotion_counts, key=emotion_counts.get)
-            if emotion_counts[max_emotion] > limit * 0.7:
-                logger.info(f"[get_content_mix] Çeşitlilik için ek içerik ekleniyor. Baskın duygu: {max_emotion}")
-                for emotion, content_list in emotion_to_contents.items():
-                    if emotion == max_emotion:
-                        continue
-                    for content in content_list:
-                        if content not in selected:
-                            selected.append(content)
-                            if len(selected) >= limit:
-                                break
-                    if len(selected) >= limit:
-                        break
-        logger.info(f"[get_content_mix] TAMAMLANDI. Sonuç: {len(selected[:limit])} içerik, Toplam süre: {time.time() - start_time:.2f} sn")
-        return selected[:limit] 
+
+            scored_contents.sort(key=lambda x: x[0], reverse=True)
+            added_count = 0
+            for score, content in scored_contents:
+                if len(selected_mix) >= limit: break
+                if content.get('id') not in used_content_ids:
+                    selected_mix.append(content)
+                    used_content_ids.add(content['id'])
+                    added_count += 1
+            logger.info(f"[get_content_mix] Added {added_count} more items based on score.")
+
+        # 6. Fallback Fill (if still under limit)
+        if len(selected_mix) < limit:
+            logger.warning(f"[get_content_mix] Still under limit. Falling back to seen/cold start pool.")
+            needed = limit - len(selected_mix)
+            fallback_pool = [c for c in contents if c.get('id') not in used_content_ids] # Broadest pool
+            random.shuffle(fallback_pool)
+            fill_count = 0
+            for content in fallback_pool:
+                 if len(selected_mix) >= limit: break
+                 if content.get('id') not in used_content_ids:
+                      selected_mix.append(content)
+                      used_content_ids.add(content['id'])
+                      fill_count+=1
+            logger.info(f"[get_content_mix] Added {fill_count} items from fallback pool.")
+
+        # 7. Final Shuffle (Maybe only shuffle *after* the planned arc?)
+        # Shuffle items after the planned arc sequence to maintain the initial story flow
+        arc_len = len(story_arc_emotions)
+        if arc_len < len(selected_mix):
+            to_shuffle = selected_mix[arc_len:]
+            random.shuffle(to_shuffle)
+            selected_mix = selected_mix[:arc_len] + to_shuffle
+            logger.info(f"[get_content_mix] Shuffled content after the initial {arc_len} arc items.")
+
+        logger.info(f"[get_content_mix] DETAILED FLOW Tamamlandı. Öneri: {len(selected_mix)}, Peak index: {peak_moment_index}")
+        return selected_mix[:limit], peak_moment_index 
