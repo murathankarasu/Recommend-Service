@@ -2,7 +2,6 @@ from flask import Blueprint, request, jsonify
 from services.firebase_service import FirebaseService
 from services.recommendation_service import RecommendationService
 from models.emotion_model import EmotionModel
-import asyncio
 import logging
 import os
 
@@ -14,9 +13,9 @@ recommendation_service = RecommendationService()
 emotion_model = EmotionModel()
 
 @api_bp.route('/recommendations/<user_id>', methods=['GET'])
-async def get_recommendations(user_id):
+def get_recommendations(user_id):
     try:
-        recommendations = await recommendation_service.get_recommendations(user_id)
+        recommendations = recommendation_service.get_recommendations(user_id)
         return jsonify({
             'user_id': user_id,
             'recommendations': recommendations
@@ -25,19 +24,19 @@ async def get_recommendations(user_id):
         return jsonify({'error': str(e)}), 500
 
 @api_bp.route('/update-patterns/<user_id>', methods=['POST'])
-async def update_patterns(user_id):
+def update_patterns(user_id):
     try:
         data = request.json
         if not data:
             return jsonify({'error': 'No data provided'}), 400
         
-        await recommendation_service.update_user_patterns(user_id, data)
+        recommendation_service.update_user_patterns(user_id, data)
         return jsonify({'message': 'Patterns updated successfully'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @api_bp.route('/log-interaction', methods=['POST'])
-async def log_interaction():
+def log_interaction():
     try:
         data = request.json
         if not data:
@@ -49,7 +48,7 @@ async def log_interaction():
         emotion = data.get('emotion')
         intensity = data.get('intensity', 1.0)
         
-        await firebase_service.log_ad_interaction(
+        firebase_service.log_ad_interaction(
             user_id, ad_id, interaction_type, emotion, intensity
         )
         
@@ -58,17 +57,17 @@ async def log_interaction():
         return jsonify({'error': str(e)}), 500
 
 @api_bp.route('/feed/<user_id>', methods=['GET'])
-async def get_unified_feed(user_id):
+def get_unified_feed(user_id):
     """Kullanıcı için birleştirilmiş feed akışını döndürür"""
     try:
         # Kullanıcı verilerini al
-        user_data = await firebase_service.get_user_emotion_data(user_id)
+        user_data = firebase_service.get_user_emotion_data(user_id)
         interactions = user_data.get('interactions', [])
 
         # Cold start kontrolü
         if len(interactions) < recommendation_service.cold_start_threshold:
             # Yeni kullanıcı için rastgele içerik
-            feed = await recommendation_service.get_user_feed(user_id)
+            feed = recommendation_service.get_user_feed(user_id)
             return jsonify({
                 'status': 'success',
                 'data': {
@@ -79,10 +78,10 @@ async def get_unified_feed(user_id):
             }), 200
 
         # Normal kullanıcı için kişiselleştirilmiş içerik
-        feed = await recommendation_service.get_user_feed(user_id)
+        feed = recommendation_service.get_user_feed(user_id)
         
         # Kullanıcı pattern'ini al
-        pattern = await firebase_service.get_user_pattern(user_id)
+        pattern = firebase_service.get_user_pattern(user_id)
         
         return jsonify({
             'status': 'success',
