@@ -10,7 +10,7 @@ class FirebasePostService(FirebaseBase):
         super().__init__()
         self.logger = logging.getLogger(__name__)
 
-    async def get_all_posts(self) -> List[Dict]:
+    def get_all_posts(self) -> List[Dict]:
         """Tüm postları getirir"""
         try:
             posts = []

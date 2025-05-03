@@ -11,7 +11,7 @@ class FirebaseInteractionService(FirebaseBase):
         self.collection_name = "userEmotionInteractions"
         self.logger = logging.getLogger(__name__)
 
-    async def get_user_interactions(self, user_id: str) -> List[Dict]:
+    def get_user_interactions(self, user_id: str) -> List[Dict]:
         """Kullanıcının etkileşimlerini Firestore'dan alır"""
         try:
             print(f"[FirebaseService] Kullanıcı etkileşimleri alınıyor - Kullanıcı: {user_id}")
@@ -70,7 +70,7 @@ class FirebaseInteractionService(FirebaseBase):
     async def get_user_emotion_data(self, user_id: str) -> Dict:
         """Kullanıcının duygu verilerini getirir"""
         try:
-            interactions = await self.get_user_interactions(user_id)
+            interactions = self.get_user_interactions(user_id)
             
             result = {
                 'interactions': interactions,
