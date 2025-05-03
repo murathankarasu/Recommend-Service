@@ -23,13 +23,13 @@ class AdManager:
         self.emotion_categories = EMOTION_CATEGORIES
         self.ad_frequency = AD_FREQUENCY
 
-    async def _get_ads_from_firebase(self) -> List[Dict[str, Any]]:
+    def _get_ads_from_firebase(self) -> List[Dict[str, Any]]:
         """Firebase'den aktif reklamları getirir."""
         try:
             if (datetime.now() - self.ad_cache_time).total_seconds() < 300 and self.ad_cache:
                 return list(self.ad_cache.values())
 
-            ads = await self.firebase.get_collection(COLLECTION_ADS)
+            ads = self.firebase.get_collection(COLLECTION_ADS)
             active_ads = [
                 ad for ad in ads 
                 if ad.get('is_active', False) and 
@@ -45,10 +45,10 @@ class AdManager:
             logger.error(f"Reklamlar getirilirken hata: {str(e)}")
             return []
 
-    async def _create_ad_content(self) -> Dict[str, Any]:
+    def _create_ad_content(self) -> Dict[str, Any]:
         """Firebase'den reklam içeriği oluşturur."""
         try:
-            ads = await self._get_ads_from_firebase()
+            ads = self._get_ads_from_firebase()
             if not ads:
                 return None
 
@@ -69,7 +69,7 @@ class AdManager:
             if not selected_ad:
                 return None
 
-            await self._update_ad_metrics(selected_ad['id'], 'impression')
+            self._update_ad_metrics(selected_ad['id'], 'impression')
 
             return {
                 'id': selected_ad['id'],
@@ -90,7 +90,7 @@ class AdManager:
             logger.error(f"Reklam içeriği oluşturulurken hata: {str(e)}")
             return None
 
-    async def _update_ad_metrics(self, ad_id: str, metric_type: str, user_id: str = None, 
+    def _update_ad_metrics(self, ad_id: str, metric_type: str, user_id: str = None, 
                                emotion_before: str = None, emotion_after: str = None):
         """Reklam metriklerini günceller."""
         try:
@@ -103,10 +103,10 @@ class AdManager:
                 'emotion_after': emotion_after
             }
 
-            await self.firebase.add_document(COLLECTION_AD_METRICS, metric_data)
+            self.firebase.add_document(COLLECTION_AD_METRICS, metric_data)
 
             ad_ref = self.firebase.db.collection(COLLECTION_ADS).document(ad_id)
-            await ad_ref.update({
+            ad_ref.update({
                 f'metrics.{metric_type}': self.firebase.db.FieldValue.increment(1),
                 'last_updated': datetime.now().isoformat()
             })
@@ -114,12 +114,12 @@ class AdManager:
         except Exception as e:
             logger.error(f"Reklam metrikleri güncellenirken hata: {str(e)}")
 
-    async def track_ad_interaction(self, ad_id: str, user_id: str, interaction_type: str, 
+    def track_ad_interaction(self, ad_id: str, user_id: str, interaction_type: str, 
                                  emotion_before: str = None, emotion_after: str = None):
         """Reklam etkileşimlerini takip eder."""
         try:
             metric_type = f"{interaction_type}_count"
-            await self._update_ad_metrics(
+            self._update_ad_metrics(
                 ad_id, 
                 metric_type, 
                 user_id, 
@@ -129,7 +129,7 @@ class AdManager:
 
             if emotion_before and emotion_after and emotion_before != emotion_after:
                 emotion_change = f"emotion_change_{emotion_before}_to_{emotion_after}"
-                await self._update_ad_metrics(
+                self._update_ad_metrics(
                     ad_id,
                     emotion_change,
                     user_id,
@@ -140,7 +140,7 @@ class AdManager:
         except Exception as e:
             logger.error(f"Reklam etkileşimi takip edilirken hata: {str(e)}")
 
-    async def insert_ads(
+    def insert_ads(
         self,
         contents: List[Dict[str, Any]],
         peak_moment_index: Optional[int],
@@ -152,7 +152,7 @@ class AdManager:
                 logger.info("[AdManager] No valid peak index or contents, returning original list.")
                 return contents
 
-            ads = await self.firebase.get_collection(COLLECTION_ADS)
+            ads = self.firebase.get_collection(COLLECTION_ADS)
             if not ads:
                 logger.warning("[AdManager] No ads found in Firebase collection.")
                 return contents
@@ -184,7 +184,7 @@ class AdManager:
             result = contents[:peak_moment_index] + [ad_content_to_insert] + contents[peak_moment_index:]
             logger.info(f"[AdManager] Inserted ad {ad_content_to_insert['id']} at index {peak_moment_index}")
 
-            await self._update_ad_metrics(ad_content_to_insert['id'], 'impression', user_id)
+            self._update_ad_metrics(ad_content_to_insert['id'], 'impression', user_id)
 
             return result
 
