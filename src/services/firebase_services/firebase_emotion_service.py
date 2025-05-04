@@ -9,7 +9,7 @@ class FirebaseEmotionService(FirebaseBase):
         super().__init__()
         self.logger = logging.getLogger(__name__)
 
-    async def get_user_emotion_history(self, user_id: str) -> List[Dict]:
+    def get_user_emotion_history(self, user_id: str) -> List[Dict]:
         """Kullanıcının duygu geçmişini Firestore'dan alır"""
         try:
             emotions = []
@@ -25,7 +25,7 @@ class FirebaseEmotionService(FirebaseBase):
             self.logger.error(f"Duygu geçmişi alınırken hata: {str(e)}")
             return []
 
-    async def add_emotion_data(self, user_id: str, emotion_data: Dict) -> bool:
+    def add_emotion_data(self, user_id: str, emotion_data: Dict) -> bool:
         """Yeni duygu verisi ekler"""
         try:
             data = {
@@ -41,7 +41,7 @@ class FirebaseEmotionService(FirebaseBase):
             self.logger.error(f"Duygu verisi eklenirken hata: {str(e)}")
             return False
 
-    async def get_user_pattern(self, user_id: str) -> Optional[Dict]:
+    def get_user_pattern(self, user_id: str) -> Optional[Dict]:
         """Kullanıcının duygu pattern'ini getirir"""
         try:
             doc = self.db.collection(COLLECTION_USER_PATTERNS).document(user_id).get()
@@ -54,7 +54,7 @@ class FirebaseEmotionService(FirebaseBase):
             self.logger.error(f"Pattern alınırken hata: {str(e)}")
             return None
 
-    async def update_user_pattern(self, user_id: str, pattern: Dict) -> bool:
+    def update_user_pattern(self, user_id: str, pattern: Dict) -> bool:
         """Kullanıcının duygu pattern'ini günceller"""
         try:
             data = {
@@ -70,10 +70,10 @@ class FirebaseEmotionService(FirebaseBase):
             self.logger.error(f"Pattern güncellenirken hata: {str(e)}")
             return False
 
-    async def get_emotion_statistics(self, user_id: str) -> Dict:
+    def get_emotion_statistics(self, user_id: str) -> Dict:
         """Kullanıcının duygu istatistiklerini hesaplar"""
         try:
-            emotions = await self.get_user_emotion_history(user_id)
+            emotions = self.get_user_emotion_history(user_id)
             
             if not emotions:
                 return {}

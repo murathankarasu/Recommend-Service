@@ -6,7 +6,7 @@ import time
 user_id = "isRKPOpG4zVFmULHJjrsvY8t1Nb2"
 
 # API adresi
-url = f"http://0.0.0.0:8000/api/recommendations/{user_id}"
+url = f"https://recommend-service-main-services.up.railway.app/api/recommendations/{user_id}"
 
 print(f"[INFO] API'ya istek atılıyor: {url}")
 

@@ -7,7 +7,7 @@ class UserInteractionHandler:
         self.logger = logging.getLogger(__name__)
         self.pattern_manager = pattern_manager
 
-    async def process_user_interaction(
+    def process_user_interaction(
         self,
         user_id: str,
         interaction_data: Dict[str, Any],
@@ -19,7 +19,7 @@ class UserInteractionHandler:
             weight = self.pattern_manager._get_interaction_weight(interaction_data.get('interaction_type'))
             
             # Etkileşimi kaydet
-            await firebase_service.log_interaction(
+            firebase_service.log_interaction(
                 user_id=user_id,
                 content_id=interaction_data.get('content_id'),
                 interaction_type=interaction_data.get('interaction_type'),
@@ -32,7 +32,7 @@ class UserInteractionHandler:
             self.logger.error(f"Etkileşim işleme hatası: {str(e)}")
             raise
 
-    async def get_user_pattern(
+    def get_user_pattern(
         self,
         user_id: str,
         firebase_service,
@@ -41,13 +41,13 @@ class UserInteractionHandler:
         """Kullanıcı pattern'ini getirir veya oluşturur"""
         try:
             # Pattern'i al
-            pattern = await firebase_service.get_user_pattern(user_id)
+            pattern = firebase_service.get_user_pattern(user_id)
             
             # Pattern yoksa veya etkileşim sayısı azsa, yeni pattern oluştur
             if not pattern or len(interactions) < 20:
                 if interactions:
                     pattern = self.pattern_manager._create_pattern_from_interactions(interactions)
-                    await firebase_service.update_user_pattern(user_id, pattern)
+                    firebase_service.update_user_pattern(user_id, pattern)
             
             return pattern
             

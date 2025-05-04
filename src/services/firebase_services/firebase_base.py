@@ -35,7 +35,7 @@ class FirebaseBase:
             print(traceback.format_exc())
             raise Exception(f"Firebase başlatılırken hata oluştu: {str(e)}")
 
-    async def get_collection(self, collection_name: str) -> List[Dict[str, Any]]:
+    def get_collection(self, collection_name: str) -> List[Dict[str, Any]]:
         """Belirtilen koleksiyondaki tüm belgeleri getirir"""
         try:
             docs = self.db.collection(collection_name).stream()
@@ -51,7 +51,7 @@ class FirebaseBase:
             self.logger.error(f"Koleksiyon getirme hatası: {str(e)}")
             return []
 
-    async def add_document(self, collection_name: str, data: Dict[str, Any]) -> str:
+    def add_document(self, collection_name: str, data: Dict[str, Any]) -> str:
         """Koleksiyona yeni belge ekler ve belge ID'sini döndürür."""
         try:
             doc_ref = self.db.collection(collection_name).document()
@@ -61,14 +61,14 @@ class FirebaseBase:
             print(f"Belge eklenirken hata: {str(e)}")
             return None
 
-    async def delete_document(self, collection_name: str, doc_id: str) -> None:
+    def delete_document(self, collection_name: str, doc_id: str) -> None:
         """Belgeyi siler."""
         try:
             self.db.collection(collection_name).document(doc_id).delete()
         except Exception as e:
             print(f"Belge silinirken hata: {str(e)}")
 
-    async def delete_collection(self, collection_name: str) -> None:
+    def delete_collection(self, collection_name: str) -> None:
         """Koleksiyondaki tüm belgeleri siler."""
         try:
             docs = self.db.collection(collection_name).stream()
@@ -77,9 +77,9 @@ class FirebaseBase:
         except Exception as e:
             print(f"Koleksiyon silinirken hata: {str(e)}")
 
-    async def get_paginated_data(self, collection_name: str, filters: Dict = None, 
-                               order_by: str = None, limit: int = 20, 
-                               start_after: str = None) -> List[Dict]:
+    def get_paginated_data(self, collection_name: str, filters: Dict = None, 
+                           order_by: str = None, limit: int = 20, 
+                           start_after: str = None) -> List[Dict]:
         """Sayfalama ile veri getir"""
         try:
             query = self.db.collection(collection_name)

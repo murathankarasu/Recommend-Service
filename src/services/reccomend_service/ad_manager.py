@@ -5,16 +5,16 @@ class AdManager:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
 
-    async def _get_available_ads(self, firebase_service) -> List[Dict]:
+    def _get_available_ads(self, firebase_service) -> List[Dict]:
         """Mevcut reklamları getirir"""
         # Son 7 günün reklamlarını al
-        recent_ads = await firebase_service.get_recent_ads(days=7)
+        recent_ads = firebase_service.get_recent_ads(days=7)
         
         if len(recent_ads) >= 3:  # En az 3 reklam
             return recent_ads
             
         # Yeterli yeni reklam yoksa, yüksek CTR'lı reklamları ekle
-        high_ctr_ads = await firebase_service.get_high_ctr_ads()
+        high_ctr_ads = firebase_service.get_high_ctr_ads()
         
         # Yeni reklamları önceliklendir
         combined_ads = recent_ads + [
@@ -44,7 +44,7 @@ class AdManager:
         
         return merged
 
-    async def _get_ad_recommendations(
+    def _get_ad_recommendations(
         self, 
         user_pattern: Dict[str, Any],
         firebase_service,
@@ -52,7 +52,7 @@ class AdManager:
     ) -> List[Dict[str, Any]]:
         """Kullanıcı pattern'ine göre reklam önerileri oluşturur"""
         try:
-            all_ads = await firebase_service.get_all_ads()
+            all_ads = firebase_service.get_all_ads()
             
             # Reklamları puanla
             scored_ads = []

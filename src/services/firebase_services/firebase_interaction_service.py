@@ -31,7 +31,7 @@ class FirebaseInteractionService(FirebaseBase):
             print(f"[FirebaseService ERROR] Etkileşimler alınırken hata oluştu: {str(e)}")
             return []
 
-    async def add_interaction(
+    def add_interaction(
         self,
         user_id: str,
         content_id: str,
@@ -67,7 +67,7 @@ class FirebaseInteractionService(FirebaseBase):
             self.logger.error(error_msg)
             return False
 
-    async def get_user_emotion_data(self, user_id: str) -> Dict:
+    def get_user_emotion_data(self, user_id: str) -> Dict:
         """Kullanıcının duygu verilerini getirir"""
         try:
             interactions = self.get_user_interactions(user_id)
@@ -83,7 +83,7 @@ class FirebaseInteractionService(FirebaseBase):
             self.logger.error(f"Kullanıcı verisi getirme hatası: {str(e)}")
             raise
 
-    async def log_interaction(self, user_id: str, content_id: str, 
+    def log_interaction(self, user_id: str, content_id: str, 
                         interaction_type: str, emotion: str, 
                         weight: float, is_ad: bool = False) -> None:
         """Etkileşimi kaydet ve reklam ise metrikleri güncelle"""
@@ -103,18 +103,18 @@ class FirebaseInteractionService(FirebaseBase):
             doc_ref.set(data)
             
             if is_ad:
-                await self._update_ad_metrics(content_id, interaction_type, emotion)
+                self._update_ad_metrics(content_id, interaction_type, emotion)
             else:
-                post = await self.get_collection(COLLECTION_POSTS)
+                post = self.get_collection(COLLECTION_POSTS)
                 post = next((p for p in post if p['id'] == content_id), None)
                 if post and post.get('tags', {}).get('advertise', False):
-                    await self._update_ad_metrics(content_id, interaction_type, emotion)
+                    self._update_ad_metrics(content_id, interaction_type, emotion)
                     
         except Exception as e:
             self.logger.error(f"Etkileşim kaydedilirken hata: {str(e)}")
             raise 
 
-    async def save_user_story_flow(self, user_id: str, story_flow: list) -> bool:
+    def save_user_story_flow(self, user_id: str, story_flow: list) -> bool:
         """Kullanıcının hikaye akışını (duygu geçişleri) Firestore'a kaydeder"""
         try:
             data = {

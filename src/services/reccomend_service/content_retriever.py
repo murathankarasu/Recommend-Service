@@ -11,7 +11,7 @@ class ContentRetriever:
         """Mevcut içerikleri getirir"""
         try:
             # Son 7 günün içeriklerini al
-            recent_content = await firebase_service.get_recent_content(
+            recent_content = firebase_service.get_recent_content(
                 days=self.RECENT_DAYS
             )
             
@@ -19,7 +19,7 @@ class ContentRetriever:
                 return recent_content
                 
             # Yeterli yeni içerik yoksa, son 30 günün popüler içeriklerini ekle
-            popular_content = await firebase_service.get_popular_content(
+            popular_content = firebase_service.get_popular_content(
                 days=self.POPULAR_DAYS
             )
             
@@ -43,8 +43,8 @@ class ContentRetriever:
     ) -> Dict[str, List[Dict[str, Any]]]:
         """Son ve popüler içerikleri getirir"""
         try:
-            recent_content = await firebase_service.get_recent_content(days=recent_days)
-            popular_content = await firebase_service.get_popular_content(days=popular_days)
+            recent_content = firebase_service.get_recent_content(days=recent_days)
+            popular_content = firebase_service.get_popular_content(days=popular_days)
             
             return {
                 'recent': recent_content,

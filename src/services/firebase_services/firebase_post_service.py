@@ -26,7 +26,7 @@ class FirebasePostService(FirebaseBase):
             self.logger.error(f"Postlar alınırken hata: {str(e)}")
             return []
 
-    async def get_posts_by_emotion(self, emotion: str, limit: int = 20) -> List[Dict]:
+    def get_posts_by_emotion(self, emotion: str, limit: int = 20) -> List[Dict]:
         """Belirli bir duyguya sahip postları al"""
         try:
             posts = []
@@ -42,7 +42,7 @@ class FirebasePostService(FirebaseBase):
             self.logger.error(f"Duygu bazlı postlar alınırken hata: {str(e)}")
             return []
 
-    async def get_posts_by_date(self, cutoff_date: datetime, limit: int = 10) -> List[Dict]:
+    def get_posts_by_date(self, cutoff_date: datetime, limit: int = 10) -> List[Dict]:
         """Belirli bir tarihten sonraki postları al"""
         try:
             posts = []
@@ -62,7 +62,7 @@ class FirebasePostService(FirebaseBase):
             self.logger.error(f"Tarih bazlı postlar alınırken hata: {str(e)}")
             return []
 
-    async def get_popular_posts(self, cutoff_date: datetime, limit: int = 10) -> List[Dict]:
+    def get_popular_posts(self, cutoff_date: datetime, limit: int = 10) -> List[Dict]:
         """Belirli bir tarihten sonraki popüler postları al"""
         try:
             # Post metriklerini al
@@ -93,16 +93,16 @@ class FirebasePostService(FirebaseBase):
             self.logger.error(f"Popüler postlar alınırken hata: {str(e)}")
             return []
 
-    async def get_random_posts(self, limit: int = 10) -> List[Dict[str, Any]]:
+    def get_random_posts(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Rastgele postları getirir"""
         try:
-            posts = await self.get_collection(COLLECTION_POSTS)
+            posts = self.get_collection(COLLECTION_POSTS)
             random.shuffle(posts)
             return posts[:limit]
         except Exception as e:
             raise Exception(f"Rastgele postlar alınırken hata: {str(e)}")
 
-    async def add_post(self, post_data: Dict) -> str:
+    def add_post(self, post_data: Dict) -> str:
         """Yeni post ekle"""
         try:
             post_data['created_at'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
@@ -113,7 +113,7 @@ class FirebasePostService(FirebaseBase):
             self.logger.error(f"Post eklenirken hata: {str(e)}")
             return None
 
-    async def delete_post(self, post_id: str) -> bool:
+    def delete_post(self, post_id: str) -> bool:
         """Belirtilen ID'ye sahip postu siler"""
         try:
             self.db.collection(COLLECTION_POSTS).document(post_id).delete()
@@ -122,7 +122,7 @@ class FirebasePostService(FirebaseBase):
             self.logger.error(f"Post silinirken hata: {str(e)}")
             return False
 
-    async def update_post_metrics(self, post_id: str, metrics: Dict) -> bool:
+    def update_post_metrics(self, post_id: str, metrics: Dict) -> bool:
         """Post metriklerini günceller"""
         try:
             data = {
@@ -137,7 +137,7 @@ class FirebasePostService(FirebaseBase):
             self.logger.error(f"Post metrikleri güncellenirken hata: {str(e)}")
             return False
 
-    async def get_recent_content(self, days: int = 7) -> List[Dict]:
+    def get_recent_content(self, days: int = 7) -> List[Dict]:
         """Son günlerin içeriklerini getirir"""
         try:
             cutoff_date = (datetime.now() - timedelta(days=days))
@@ -158,7 +158,7 @@ class FirebasePostService(FirebaseBase):
             self.logger.error(f"Son içerikleri getirme hatası: {str(e)}")
             return []
 
-    async def get_popular_content(self, days: int = 30) -> List[Dict]:
+    def get_popular_content(self, days: int = 30) -> List[Dict]:
         """Popüler içerikleri getirir"""
         try:
             cutoff_date = (datetime.now() - timedelta(days=days))

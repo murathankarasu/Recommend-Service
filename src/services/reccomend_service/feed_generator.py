@@ -12,11 +12,11 @@ class FeedGenerator:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
 
-    async def _handle_cold_start(self, firebase_service) -> List[Dict[str, Any]]:
+    def _handle_cold_start(self, firebase_service) -> List[Dict[str, Any]]:
         """Cold start durumunda rastgele farklı duygulardan içerik önerir"""
         try:
             # Tüm postları al
-            all_posts = await firebase_service.get_all_posts()
+            all_posts = firebase_service.get_all_posts()
             
             if not all_posts:
                 return []
@@ -145,7 +145,7 @@ class FeedGenerator:
                 striking_idx = i
         return striking_idx
 
-    async def _create_personalized_feed(
+    def _create_personalized_feed(
         self, 
         pattern: Dict, 
         is_continuous: bool,
@@ -172,12 +172,12 @@ class FeedGenerator:
             opposite_count = int(total_posts * opposite_ratio)
             explore_count = total_posts - dominant_count - opposite_count
             # Son 7 günün içeriklerini al
-            recent_posts = await firebase_service.get_recent_content(days=7)
-            recent_ads = await firebase_service.get_recent_ads(days=7)
+            recent_posts = firebase_service.get_recent_content(days=7)
+            recent_ads = firebase_service.get_recent_ads(days=7)
             if not recent_posts:
-                recent_posts = await firebase_service.get_popular_content(days=30)
+                recent_posts = firebase_service.get_popular_content(days=30)
             if not recent_posts:
-                all_posts = await firebase_service.get_all_posts()
+                all_posts = firebase_service.get_all_posts()
                 return get_cold_start_content(all_posts, list(pattern.keys()), total_posts)
             scored_posts = content_scorer.score_content(recent_posts, pattern, max(pattern.items(), key=lambda x: x[1])[0], is_continuous)
             scored_posts = shuffle_same_score(scored_posts)
@@ -282,12 +282,12 @@ class FeedGenerator:
                             })
                             ad_index += 1
             # Feed oluşturulduktan sonra sürpriz içerik ekle
-            all_posts = await firebase_service.get_all_posts()
+            all_posts = firebase_service.get_all_posts()
             feed = self.inject_surprise_content(feed, all_posts, pattern, ratio=0.1)
             feed = avoid_consecutive_same_emotion(feed)
             # --- HİKAYE AKIŞI ANALİZİ ve KAYDI ---
             if user_id is not None:
-                user_data = await firebase_service.get_user_emotion_data(user_id)
+                user_data = firebase_service.get_user_emotion_data(user_id)
                 interactions = user_data.get('interactions', [])
                 emotions = [i.get('emotion') for i in interactions if i.get('emotion')]
                 story_flow = []
@@ -298,13 +298,13 @@ class FeedGenerator:
                 for i in range(1, len(feed_emotions)):
                     if feed_emotions[i-1] != feed_emotions[i]:
                         story_flow.append(f"{feed_emotions[i-1]} -> {feed_emotions[i]}")
-                await firebase_service.save_user_story_flow(user_id, story_flow)
+                firebase_service.save_user_story_flow(user_id, story_flow)
             # --- VURGU GEÇİŞİNE REKLAM EKLEME ---
             feed_emotions = [item.get('emotion') for item in feed if item.get('type') == 'post']
             striking_idx = self.find_striking_transition(feed_emotions, pattern)
             if striking_idx is not None:
                 # Reklamı bu geçişin hemen sonrasına ekle (varsa reklam havuzundan al)
-                recent_ads = await firebase_service.get_recent_ads(days=7)
+                recent_ads = firebase_service.get_recent_ads(days=7)
                 scored_ads = content_scorer.score_content(recent_ads, pattern, max(pattern.items(), key=lambda x: x[1])[0], is_continuous, is_ad=True) if recent_ads else []
                 if scored_ads:
                     ad = scored_ads[0]

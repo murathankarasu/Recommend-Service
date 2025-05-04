@@ -10,7 +10,7 @@ class FirebaseUserService(FirebaseBase):
         self.collection_name = COLLECTION_USERS
         self.logger = logging.getLogger(__name__)
 
-    async def get_user(self, user_id: str) -> Optional[Dict]:
+    def get_user(self, user_id: str) -> Optional[Dict]:
         """Kullanıcı bilgilerini Firestore'dan alır"""
         try:
             doc = self.db.collection(self.collection_name).document(user_id).get()
@@ -23,7 +23,7 @@ class FirebaseUserService(FirebaseBase):
             self.logger.error(f"Kullanıcı bilgileri alınırken hata: {str(e)}")
             return None
 
-    async def update_user(self, user_id: str, data: Dict) -> bool:
+    def update_user(self, user_id: str, data: Dict) -> bool:
         """Kullanıcı bilgilerini günceller"""
         try:
             doc_ref = self.db.collection(self.collection_name).document(user_id)
@@ -33,7 +33,7 @@ class FirebaseUserService(FirebaseBase):
             self.logger.error(f"Kullanıcı güncellenirken hata: {str(e)}")
             return False
 
-    async def get_all_users(self) -> List[Dict]:
+    def get_all_users(self) -> List[Dict]:
         """Tüm kullanıcıları getirir"""
         try:
             users = []
@@ -47,7 +47,7 @@ class FirebaseUserService(FirebaseBase):
             self.logger.error(f"Kullanıcılar alınırken hata: {str(e)}")
             return []
 
-    async def delete_user(self, user_id: str) -> bool:
+    def delete_user(self, user_id: str) -> bool:
         """Kullanıcıyı siler"""
         try:
             self.db.collection(self.collection_name).document(user_id).delete()
@@ -56,7 +56,7 @@ class FirebaseUserService(FirebaseBase):
             self.logger.error(f"Kullanıcı silinirken hata: {str(e)}")
             return False
 
-    async def get_user_pattern(self, user_id: str):
+    def get_user_pattern(self, user_id: str):
         """Kullanıcının güncel pattern'ini getir"""
         try:
             url = f"{self.base_url}/{COLLECTION_USER_PATTERNS}/{user_id}?key={self.api_key}"
@@ -73,7 +73,7 @@ class FirebaseUserService(FirebaseBase):
         except Exception as e:
             raise Exception(f"Pattern alınırken hata oluştu: {str(e)}")
 
-    async def update_user_pattern(self, user_id: str, pattern: Dict[str, Any]) -> None:
+    def update_user_pattern(self, user_id: str, pattern: Dict[str, Any]) -> None:
         """Kullanıcının duygu pattern'ini günceller"""
         try:
             doc_id = user_id
@@ -92,7 +92,7 @@ class FirebaseUserService(FirebaseBase):
         except Exception as e:
             raise Exception(f"Kullanıcı pattern'i güncellenirken hata: {str(e)}")
 
-    async def add_user_emotion(self, user_id: str, emotion_data: dict):
+    def add_user_emotion(self, user_id: str, emotion_data: dict):
         """Kullanıcıya yeni duygu verisi ekle"""
         try:
             url = f"{self.base_url}/{COLLECTION_USERS}/{user_id}?key={self.api_key}"
@@ -120,7 +120,7 @@ class FirebaseUserService(FirebaseBase):
         except Exception as e:
             raise Exception(f"Duygu verisi eklenirken hata oluştu: {str(e)}")
 
-    async def update_user_emotion_history(self, user_id: str, emotion_data: Dict) -> None:
+    def update_user_emotion_history(self, user_id: str, emotion_data: Dict) -> None:
         """Kullanıcı duygu geçmişini günceller"""
         try:
             url = f"{self.base_url}/{COLLECTION_USER_EMOTION_HISTORY}/{user_id}?key={self.api_key}"

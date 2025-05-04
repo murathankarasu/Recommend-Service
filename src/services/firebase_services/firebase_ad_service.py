@@ -9,7 +9,7 @@ class FirebaseAdService(FirebaseBase):
         super().__init__()
         self.logger = logging.getLogger(__name__)
 
-    async def get_all_ads(self) -> List[Dict]:
+    def get_all_ads(self) -> List[Dict]:
         """Tüm reklamları getirir"""
         try:
             ads = []
@@ -25,7 +25,7 @@ class FirebaseAdService(FirebaseBase):
             self.logger.error(f"Reklamlar alınırken hata: {str(e)}")
             return []
 
-    async def get_active_ads(self) -> List[Dict]:
+    def get_active_ads(self) -> List[Dict]:
         """Aktif reklamları getirir"""
         try:
             ads = []
@@ -43,7 +43,7 @@ class FirebaseAdService(FirebaseBase):
             self.logger.error(f"Aktif reklamlar alınırken hata: {str(e)}")
             return []
 
-    async def get_ads_by_category(self, category: str) -> List[Dict]:
+    def get_ads_by_category(self, category: str) -> List[Dict]:
         """Kategoriye göre reklamları getirir"""
         try:
             ads = []
@@ -62,7 +62,7 @@ class FirebaseAdService(FirebaseBase):
             self.logger.error(f"Kategori bazlı reklamlar alınırken hata: {str(e)}")
             return []
 
-    async def add_ad(self, ad_data: Dict) -> str:
+    def add_ad(self, ad_data: Dict) -> str:
         """Yeni reklam ekler"""
         try:
             ad_data['created_at'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
@@ -72,14 +72,14 @@ class FirebaseAdService(FirebaseBase):
             doc_ref.set(ad_data)
             
             # Reklam metriklerini başlat
-            await self._initialize_ad_metrics(doc_ref.id)
+            self._initialize_ad_metrics(doc_ref.id)
             
             return doc_ref.id
         except Exception as e:
             self.logger.error(f"Reklam eklenirken hata: {str(e)}")
             return None
 
-    async def update_ad(self, ad_id: str, ad_data: Dict) -> bool:
+    def update_ad(self, ad_id: str, ad_data: Dict) -> bool:
         """Reklamı günceller"""
         try:
             ad_data['updated_at'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
@@ -91,7 +91,7 @@ class FirebaseAdService(FirebaseBase):
             self.logger.error(f"Reklam güncellenirken hata: {str(e)}")
             return False
 
-    async def delete_ad(self, ad_id: str) -> bool:
+    def delete_ad(self, ad_id: str) -> bool:
         """Reklamı siler"""
         try:
             self.db.collection(COLLECTION_ADS).document(ad_id).delete()
@@ -100,7 +100,7 @@ class FirebaseAdService(FirebaseBase):
             self.logger.error(f"Reklam silinirken hata: {str(e)}")
             return False
 
-    async def update_ad_metrics(self, ad_id: str, metrics: Dict) -> bool:
+    def update_ad_metrics(self, ad_id: str, metrics: Dict) -> bool:
         """Reklam metriklerini günceller"""
         try:
             data = {
@@ -115,7 +115,7 @@ class FirebaseAdService(FirebaseBase):
             self.logger.error(f"Reklam metrikleri güncellenirken hata: {str(e)}")
             return False
 
-    async def get_ad_metrics(self, ad_id: str) -> Optional[Dict]:
+    def get_ad_metrics(self, ad_id: str) -> Optional[Dict]:
         """Reklam metriklerini getirir"""
         try:
             doc = self.db.collection(COLLECTION_AD_METRICS).document(ad_id).get()
@@ -128,7 +128,7 @@ class FirebaseAdService(FirebaseBase):
             self.logger.error(f"Reklam metrikleri alınırken hata: {str(e)}")
             return None
 
-    async def _initialize_ad_metrics(self, ad_id: str) -> None:
+    def _initialize_ad_metrics(self, ad_id: str) -> None:
         """Reklam metriklerini başlatır"""
         try:
             initial_metrics = {
@@ -146,7 +146,7 @@ class FirebaseAdService(FirebaseBase):
         except Exception as e:
             self.logger.error(f"Reklam metrikleri başlatılırken hata: {str(e)}")
 
-    async def get_performance_report(self, start_date: datetime, end_date: datetime) -> List[Dict]:
+    def get_performance_report(self, start_date: datetime, end_date: datetime) -> List[Dict]:
         """Reklam performans raporunu getirir"""
         try:
             metrics = []

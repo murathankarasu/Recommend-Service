@@ -34,9 +34,9 @@ class RecommendationEngine:
         try:
             print(f"[RecommendationEngine] Öneriler oluşturuluyor - Kullanıcı: {user_id}")
             # Kullanıcı etkileşimlerini getir
-            interactions = await firebase_service.get_user_interactions(user_id)
+            interactions = firebase_service.get_user_interactions(user_id)
             # İçerikleri getir
-            contents = await firebase_service.get_all_posts()
+            contents = firebase_service.get_all_posts()
             # Soğuk başlangıç kontrolü
             if not interactions:
                 content_mix = get_cold_start_content(contents, list(EMOTION_CATEGORIES.values()), limit)
@@ -49,7 +49,7 @@ class RecommendationEngine:
                 # İçerik karışımını oluştur (daha önce gösterilenleri hariç tut)
                 content_mix = self.emotion_model.get_content_mix(contents, emotion_pattern, limit, shown_post_ids=shown_post_ids)
             # Reklamları ekle
-            final_mix = await self.emotion_model.insert_ads(content_mix, user_id)
+            final_mix = self.emotion_model.insert_ads(content_mix, user_id)
             # Loglama (A/B test ve parametre takibi)
             try:
                 log_recommendation_event(
@@ -81,14 +81,14 @@ class RecommendationEngine:
         """Kullanıcı için feed oluşturur"""
         try:
             # Kullanıcı verilerini al
-            user_data = await firebase_service.get_user_emotion_data(user_id)
+            user_data = firebase_service.get_user_emotion_data(user_id)
             interactions = user_data.get('interactions', [])
             # Süreklilik kontrolü
             is_continuous = self.pattern_manager._check_emotion_continuity(interactions)
             # Pattern'i al
-            pattern = await firebase_service.get_user_pattern(user_id)
+            pattern = firebase_service.get_user_pattern(user_id)
             # Feed oluştur
-            feed = await self.feed_generator._create_personalized_feed(
+            feed = self.feed_generator._create_personalized_feed(
                 pattern, 
                 is_continuous,
                 firebase_service,
@@ -97,4 +97,4 @@ class RecommendationEngine:
             return feed
         except Exception as e:
             self.logger.error(f"Feed oluşturma hatası: {str(e)}")
-            return await self.feed_generator._handle_cold_start(firebase_service) 
+            return self.feed_generator._handle_cold_start(firebase_service) 
