@@ -233,20 +233,25 @@ class ContentRecommender:
 
         for i, arc_emotion in enumerate(story_arc_emotions):
             found_content = False
-            # Prioritize recent unseen, then other unseen
-            for content in recent_unseen + other_unseen:
-                if content.get('emotion') == arc_emotion and content.get('id') not in used_content_ids:
-                    selected_mix.append(content)
-                    used_content_ids.add(content['id'])
-                    arc_content_indices[arc_emotion] = len(selected_mix) - 1 # Store index where it was added
-                    logger.info(f"[get_content_mix] Added arc content [{i+1}/{len(story_arc_emotions)}]: {arc_emotion}")
-                    found_content = True
-                    break
+            # Önce o duygudaki içerikler içinden, keyword eşleşenleri bul
+            emotion_candidates = [c for c in recent_unseen + other_unseen if c.get('emotion') == arc_emotion and c.get('id') not in used_content_ids]
+            if emotion_candidates:
+                # Kullanıcı keywordleriyle eşleşenleri öne al
+                user_keywords = self._get_user_recent_keywords()
+                keyword_matched = [c for c in emotion_candidates if user_keywords and set(c.get('keywords', [])) & user_keywords]
+                if keyword_matched:
+                    selected = random.choice(keyword_matched)
+                else:
+                    selected = random.choice(emotion_candidates)
+                selected_mix.append(selected)
+                used_content_ids.add(selected['id'])
+                arc_content_indices[arc_emotion] = len(selected_mix) - 1
+                logger.info(f"[get_content_mix] Added arc content [{i+1}/{len(story_arc_emotions)}]: {arc_emotion}")
+                found_content = True
             if not found_content:
-                 logger.warning(f"[get_content_mix] Could not find unseen content for arc step: {arc_emotion}. Stopping arc sequence here.")
-                 # Remove the emotion from the planned arc if no content found
-                 story_arc_emotions = story_arc_emotions[:i]
-                 break
+                logger.warning(f"[get_content_mix] Could not find unseen content for arc step: {arc_emotion}. Stopping arc sequence here.")
+                story_arc_emotions = story_arc_emotions[:i]
+                break
 
         # 4. Determine the Peak Moment Index
         peak_moment_index: Optional[int] = None
@@ -378,7 +383,7 @@ class ContentRecommender:
         try:
             recent_keywords = set()
             # Son 100 etkileşimi kontrol et
-            recent_interactions = self.content_engagement.items()[:100]
+            recent_interactions = list(self.content_engagement.items())[:100]
             
             for content_id, interactions in recent_interactions:
                 # Etkileşim sayısına göre ağırlıklandır
