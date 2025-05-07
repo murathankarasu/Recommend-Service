@@ -356,6 +356,21 @@ class ContentRecommender:
             selected_mix = selected_mix[:arc_len] + to_shuffle
             logger.info(f"[get_content_mix] Shuffled content after the initial {arc_len} arc items.")
 
+        # --- KEŞİF SLOTU: Hiç etkileşim vermediği duygulardan 3 içerik ekle ---
+        explore_emotions = [e for e in EMOTION_CATEGORIES.values() if emotion_pattern.get(e, 0) == 0]
+        exploration_added = 0
+        for emo in explore_emotions:
+            if exploration_added >= 3:
+                break
+            candidates = [c for c in contents if c.get('emotion') == emo and c.get('id') not in used_content_ids]
+            if candidates:
+                selected = random.choice(candidates)
+                selected_mix.append(selected)
+                used_content_ids.add(selected['id'])
+                exploration_added += 1
+        if exploration_added > 0:
+            logger.info(f"[get_content_mix] {exploration_added} keşif slotu eklendi (hiç etkileşim vermediği duygulardan).")
+
         logger.info(f"[get_content_mix] DETAILED FLOW Tamamlandı. Öneri: {len(selected_mix)}, Peak index: {peak_moment_index}")
         return selected_mix[:limit], peak_moment_index 
 
