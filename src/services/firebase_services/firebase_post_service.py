@@ -4,27 +4,57 @@ from typing import Any
 from .firebase_base import FirebaseBase
 from config import COLLECTION_POSTS, COLLECTION_POST_METRICS
 import logging
+import firebase_admin
 
 class FirebasePostService(FirebaseBase):
     def __init__(self):
         super().__init__()
         self.logger = logging.getLogger(__name__)
+        self.db = firebase_admin.db
 
     def get_all_posts(self) -> List[Dict]:
-        """Tüm postları getirir"""
+        """Tüm postları getirir ve keyword bilgilerini ekler."""
         try:
+            posts_ref = self.db.collection(COLLECTION_POSTS)
             posts = []
-            docs = self.db.collection(COLLECTION_POSTS).stream()
             
-            for doc in docs:
-                post_data = doc.to_dict()
-                post_data['id'] = doc.id
+            for post in posts_ref.stream():
+                post_data = post.to_dict()
+                post_data['id'] = post.id
+                
+                # Keyword bilgilerini ekle
+                if 'keywords' not in post_data:
+                    post_data['keywords'] = self._extract_keywords(post_data)
+                
                 posts.append(post_data)
             
             return posts
         except Exception as e:
-            self.logger.error(f"Postlar alınırken hata: {str(e)}")
+            self.logger.error(f"Postlar getirilirken hata: {str(e)}")
             return []
+
+    def _extract_keywords(self, post_data: Dict) -> List[str]:
+        """Post verilerinden keywordleri çıkarır."""
+        keywords = set()
+        
+        # Başlıktan keyword çıkar
+        if 'title' in post_data:
+            title_words = post_data['title'].lower().split()
+            keywords.update([w for w in title_words if len(w) > 3])
+        
+        # İçerikten keyword çıkar
+        if 'content' in post_data:
+            content_words = post_data['content'].lower().split()
+            keywords.update([w for w in content_words if len(w) > 3])
+        
+        # Kategori ve etiketleri ekle
+        if 'category' in post_data:
+            keywords.add(post_data['category'].lower())
+        
+        if 'tags' in post_data:
+            keywords.update([tag.lower() for tag in post_data['tags']])
+        
+        return list(keywords)
 
     def get_posts_by_emotion(self, emotion: str, limit: int = 20) -> List[Dict]:
         """Belirli bir duyguya sahip postları al"""

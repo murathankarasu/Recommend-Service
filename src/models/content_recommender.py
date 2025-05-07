@@ -10,7 +10,8 @@ from config.config import (
     INTERACTION_TYPE_WEIGHTS,
     EMOTION_CATEGORIES,
     OPPOSITE_EMOTIONS,
-    EMOTION_TRANSITION_MATRIX
+    EMOTION_TRANSITION_MATRIX,
+    KEYWORD_MATCH_WEIGHT
 )
 from services.reccomend_service.shuffle_utils import shuffle_same_score
 from services.reccomend_service.date_utils import parse_timestamp
@@ -22,6 +23,7 @@ class ContentRecommender:
     def __init__(self):
         self.content_engagement = {}  # İçerik bazlı etkileşim istatistikleri
         self.interaction_weights = INTERACTION_TYPE_WEIGHTS
+        self.keyword_match_weight = KEYWORD_MATCH_WEIGHT  # Keyword eşleşme ağırlığı
 
     def calculate_content_relevance(self, content: Dict[str, Any], user_pattern: Dict[str, float]) -> float:
         """İçeriğin kullanıcı desenine uygunluğunu hesaplar."""
@@ -36,6 +38,10 @@ class ContentRecommender:
             if content_id in self.content_engagement:
                 engagement_score = self._calculate_engagement_score(content_id)
                 base_relevance *= (1.0 + engagement_score)
+
+            # Keyword eşleşme skorunu ekle
+            keyword_score = self._calculate_keyword_match_score(content)
+            base_relevance = base_relevance * (1 - self.keyword_match_weight) + keyword_score * self.keyword_match_weight
 
             return min(1.0, max(0.0, base_relevance))
 
@@ -341,3 +347,57 @@ class ContentRecommender:
 
         logger.info(f"[get_content_mix] DETAILED FLOW Tamamlandı. Öneri: {len(selected_mix)}, Peak index: {peak_moment_index}")
         return selected_mix[:limit], peak_moment_index 
+
+    def _calculate_keyword_match_score(self, content: Dict[str, Any]) -> float:
+        """İçeriğin keyword eşleşme skorunu hesaplar."""
+        try:
+            content_keywords = set(content.get('keywords', []))
+            if not content_keywords:
+                return 0.0
+
+            # Kullanıcının son etkileşimlerindeki keywordleri al
+            user_keywords = self._get_user_recent_keywords()
+            if not user_keywords:
+                return 0.0
+
+            # Jaccard benzerliği hesapla
+            intersection = len(content_keywords.intersection(user_keywords))
+            union = len(content_keywords.union(user_keywords))
+            
+            if union == 0:
+                return 0.0
+
+            return intersection / union
+
+        except Exception as e:
+            logger.error(f"Keyword eşleşme skoru hesaplanırken hata: {str(e)}")
+            return 0.0
+
+    def _get_user_recent_keywords(self) -> set:
+        """Kullanıcının son etkileşimlerindeki keywordleri döndürür."""
+        try:
+            recent_keywords = set()
+            # Son 100 etkileşimi kontrol et
+            recent_interactions = self.content_engagement.items()[:100]
+            
+            for content_id, interactions in recent_interactions:
+                # Etkileşim sayısına göre ağırlıklandır
+                interaction_count = sum(interactions.values())
+                if interaction_count > 0:
+                    # İçeriğin keywordlerini al ve ağırlıklandır
+                    content = self._get_content_by_id(content_id)
+                    if content:
+                        content_keywords = set(content.get('keywords', []))
+                        recent_keywords.update(content_keywords)
+
+            return recent_keywords
+
+        except Exception as e:
+            logger.error(f"Kullanıcı keywordleri alınırken hata: {str(e)}")
+            return set()
+
+    def _get_content_by_id(self, content_id: str) -> Optional[Dict[str, Any]]:
+        """İçerik ID'sine göre içeriği döndürür."""
+        # Bu fonksiyon Firebase'den içerik bilgisini alacak şekilde güncellenebilir
+        # Şimdilik boş bir sözlük döndürüyoruz
+        return {} 

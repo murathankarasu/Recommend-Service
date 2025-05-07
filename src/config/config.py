@@ -298,4 +298,17 @@ PERFORMANCE_METRICS = {
     'cache_hit_ratio': 0.8,
     'error_rate_threshold': 0.01,
     'scaling_factor': 1.2
+}
+
+# Keyword eşleşme ağırlığı (0.0 - 1.0 arası)
+# Bu değer, keyword eşleşmesinin toplam skora etkisini belirler
+KEYWORD_MATCH_WEIGHT = 0.3  # %30 ağırlık
+
+# Reklam performans ağırlıkları
+AD_PERFORMANCE_WEIGHTS = {
+    'emotion': 0.3,        # Duygu uygunluğu ağırlığı
+    'keyword': 0.3,        # Keyword uygunluğu ağırlığı
+    'performance': 0.4,    # Performans metrikleri ağırlığı
+    'ctr': 0.6,           # CTR ağırlığı (performans içinde)
+    'emotion_change': 0.4  # Duygu değişimi ağırlığı (performans içinde)
 } 
