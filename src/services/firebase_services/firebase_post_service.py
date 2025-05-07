@@ -5,12 +5,24 @@ from .firebase_base import FirebaseBase
 from config import COLLECTION_POSTS, COLLECTION_POST_METRICS
 import logging
 import firebase_admin
+from firebase_admin import credentials, firestore
 
 class FirebasePostService(FirebaseBase):
     def __init__(self):
         super().__init__()
         self.logger = logging.getLogger(__name__)
-        self.db = firebase_admin.db
+        try:
+            # Firebase Admin SDK'yı başlat
+            if not firebase_admin._apps:
+                cred = credentials.Certificate("config/lorien-app-tr-firebase-adminsdk.json")
+                firebase_admin.initialize_app(cred)
+            
+            # Firestore veritabanını başlat
+            self.db = firestore.client()
+            print("Firebase Post servisi başarıyla başlatıldı")
+        except Exception as e:
+            print(f"Firebase Post servisi başlatılırken hata: {str(e)}")
+            raise e
 
     def get_all_posts(self) -> List[Dict]:
         """Tüm postları getirir ve keyword bilgilerini ekler."""
@@ -219,4 +231,13 @@ class FirebasePostService(FirebaseBase):
             return popular_posts
         except Exception as e:
             self.logger.error(f"Popüler içerikleri getirme hatası: {str(e)}")
-            return [] 
+            return []
+
+    def get_post_by_id(self, post_id):
+        try:
+            post_ref = self.db.collection(COLLECTION_POSTS).document(post_id)
+            post = post_ref.get()
+            return post.to_dict() if post.exists else None
+        except Exception as e:
+            print(f"İçerik getirilirken hata: {str(e)}")
+            return None 
