@@ -199,8 +199,8 @@ class ContentRecommender:
             if dt is None: return datetime(1970, 1, 1, tzinfo=timezone.utc)
             if dt.tzinfo is None: return dt.replace(tzinfo=timezone.utc)
             return dt.astimezone(timezone.utc)
-        recent_unseen = sorted([c for c in contents if c.get('id') not in shown_post_ids and safe_parse_timestamp(c.get('timestamp')) >= now - timedelta(days=7)], key=lambda c: safe_parse_timestamp(c.get('timestamp')), reverse=True)
-        other_unseen = [c for c in contents if c.get('id') not in shown_post_ids and c not in recent_unseen]
+        recent_unseen = sorted([c for c in contents if safe_parse_timestamp(c.get('timestamp')) >= now - timedelta(days=7)], key=lambda c: safe_parse_timestamp(c.get('timestamp')), reverse=True)
+        other_unseen = [c for c in contents if c not in recent_unseen]
         all_unseen_pool = recent_unseen + other_unseen
         random.shuffle(all_unseen_pool)
 
@@ -318,9 +318,15 @@ class ContentRecommender:
 
             scored_contents.sort(key=lambda x: x[0], reverse=True)
             added_count = 0
+            max_same_emotion_in_row = 2
             for score, content in scored_contents:
                 if len(selected_mix) >= limit: break
                 if content.get('id') not in used_content_ids:
+                    # Son eklenen içeriklerin duygusuna bak
+                    if len(selected_mix) >= max_same_emotion_in_row:
+                        last_emotions = [c['emotion'] for c in selected_mix[-max_same_emotion_in_row:]]
+                        if all(e == content['emotion'] for e in last_emotions):
+                            continue  # Aynı duygudan fazla olmasın
                     selected_mix.append(content)
                     used_content_ids.add(content['id'])
                     added_count += 1
