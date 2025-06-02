@@ -1,4 +1,4 @@
-# Emotion-Based Recommendation System
+# Lorien
 
 This project is an API service that provides content and ad recommendations based on users' emotional interactions.
 
