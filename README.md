@@ -1,6 +1,6 @@
 # Lorien
 
-This project is an API service that provides content and ad recommendations based on users' emotional interactions.
+This project features an empathy-driven algorithm that recommends content and ads based on the emotional patterns detected in user interactions.
 
 ## Features
 
